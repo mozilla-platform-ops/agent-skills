@@ -13,31 +13,20 @@ npx skills add mozilla-platform-ops/skills
 Install specific skills:
 
 ```bash
-npx skills add mozilla-platform-ops/skills/skill-creator
+npx skills add mozilla-platform-ops/skills/<skill-name>
 ```
 
 ## Available skills
 
-### skill-creator
-
-Creates new skills using Anthropic's template and validation scripts.
-
-Invoke with `/skill-creator`
-
-Includes:
-- Workflow templates
-- Pattern guidelines
-- Validation scripts (Python)
-- Packaging utilities
+Coming soon.
 
 ## Adding new skills
 
-1. Run `/skill-creator` to design your skill
-2. Create `skills/<skill-name>/` directory
-3. Add `SKILL.md` file (required - this is how npx discovers skills)
-4. Include LICENSE if different from MPL-2.0
-5. Update this README
-6. Test with `npx skills add`
+1. Create `skills/<skill-name>/` directory
+2. Add `SKILL.md` file (required - this is how npx discovers skills)
+3. Include LICENSE if different from MPL-2.0
+4. Update this README
+5. Test with `npx skills add`
 
 ## License
 
