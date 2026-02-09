@@ -18,7 +18,9 @@ npx skills add mozilla-platform-ops/agent-skills/<skill-name>
 
 ## Available Skills
 
-Coming soon.
+| Skill | Description |
+|-------|-------------|
+| [bigquery](skills/bigquery/) | Query Mozilla telemetry data via the `bq` CLI — DAU/MAU, OS version distribution, Glean metrics |
 
 ## Adding New Skills
 
