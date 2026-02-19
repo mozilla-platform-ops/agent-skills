@@ -98,9 +98,7 @@ uv run scripts/query_redash.py --query-id 114867 --format table
 
 **Caveats:**
 - `active_users_aggregates` has no architecture column — DAU and arch breakdown require separate queries against different tables
-- DAU query uses `os_version_major` (pre-split integer), no CASE mapping needed
 - `architecture` in `baseline_clients_daily` is CPU/hardware arch — Intel Firefox under Rosetta 2 reports `aarch64`
-- `SAFE_CAST` / `SAFE_OFFSET` required in arch query — some clients have null/malformed `normalized_os_version`
 - Cached results are up to 24 hours old
 
 ## Task Group Cost by Pusher
