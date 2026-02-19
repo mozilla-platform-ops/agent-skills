@@ -20,7 +20,7 @@ npx skills add mozilla-platform-ops/agent-skills/<skill-name>
 
 | Skill | Description |
 |-------|-------------|
-| [bigquery](skills/bigquery/) | Query Mozilla telemetry data via the `bq` CLI — DAU/MAU, OS version distribution, Glean metrics |
+| [redash](skills/redash/) | Query Mozilla's Redash (sql.telemetry.mozilla.org) for telemetry data — OS distribution, DAU/MAU, architecture breakdown, custom SQL against BigQuery |
 
 ## Adding New Skills
 
