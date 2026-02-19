@@ -1,6 +1,6 @@
 # agent-skills
 
-Claude Code skills for the Mozilla RelOps team — custom workflows, tools, and integrations for querying telemetry, managing CI, and automating infrastructure tasks.
+Claude Code skills for the Mozilla RelOps team. Each skill gives agents the context and tooling to work with Mozilla's telemetry, CI, and infrastructure systems.
 
 ## Installation
 
@@ -20,7 +20,7 @@ npx skills add mozilla-platform-ops/agent-skills/<skill-name>
 
 | Skill | Description |
 |-------|-------------|
-| [redash](skills/redash/) | Query Mozilla's Redash (sql.telemetry.mozilla.org) for telemetry data — OS distribution, DAU/MAU, architecture breakdown, custom SQL against BigQuery |
+| [redash](skills/redash/) | Query Mozilla's Redash (sql.telemetry.mozilla.org) for Firefox telemetry data. Covers OS version distribution, DAU/MAU, and architecture breakdown. Requires only a Redash API key. |
 
 ## Adding New Skills
 
@@ -32,7 +32,7 @@ npx skills add mozilla-platform-ops/agent-skills/<skill-name>
 
 ## License
 
-MPL-2.0 except where noted. Individual skills may use different licenses — check the LICENSE file in each skill directory.
+MPL-2.0 except where noted. Individual skills may use different licenses; check the LICENSE file in each skill directory.
 
 ## Links
 
