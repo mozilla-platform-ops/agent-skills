@@ -54,13 +54,13 @@ These natural language prompts map to queries in `references/common-queries.md`:
 
 | Prompt | Query used |
 |--------|------------|
-| "What's the DAU breakdown by macOS version?" | macOS Version DAU (active_users_aggregates) |
-| "Show me macOS version × architecture distribution" | macOS version × arch (baseline_clients_daily) |
-| "What share of macOS users are on Apple Silicon?" | macOS version × arch, compare aarch64 vs x86_64 |
-| "Pull the macOS DAU and arch breakdown for the last 28 days" | Both macOS queries |
-| "What Windows versions are Firefox Desktop users on?" | Windows Version Distribution (query 65967) |
-| "How many Firefox users are on Windows 11?" | Windows Version Distribution |
-| "What does the macOS adoption curve look like over time?" | macOS Version DAU by os_version_major |
+| "What's the DAU breakdown by macOS version?" | `--query-id 114866` (macOS Version DAU) |
+| "Show me macOS version × architecture distribution" | `--query-id 114867` (macOS version × arch) |
+| "What share of macOS users are on Apple Silicon?" | `--query-id 114867`, compare aarch64 vs x86_64 |
+| "Pull the macOS DAU and arch breakdown for the last 28 days" | `--query-id 114866` and `--query-id 114867` |
+| "What Windows versions are Firefox Desktop users on?" | `--query-id 65967` (Windows Version Distribution) |
+| "How many Firefox users are on Windows 11?" | `--query-id 65967` |
+| "What does the macOS adoption curve look like over time?" | `--query-id 114866`, look at darwin_version |
 
 For questions not covered by a documented query, write SQL on the fly using the table references in `references/README.md`.
 

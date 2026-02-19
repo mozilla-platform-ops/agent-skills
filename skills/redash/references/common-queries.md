@@ -82,47 +82,18 @@ Two complementary queries: DAU by macOS version from `active_users_aggregates`, 
 
 ### DAU by macOS version
 
+Source: [Redash Query 114866](https://sql.telemetry.mozilla.org/queries/114866/)
+
 ```bash
-uv run scripts/query_redash.py --format table --sql "
-SELECT
-  os_version_major AS darwin_version,
-  SUM(dau) AS total_dau
-FROM \`mozdata.telemetry.active_users_aggregates\`
-WHERE app_name = 'Firefox Desktop'
-  AND submission_date > DATE_SUB(CURRENT_DATE, INTERVAL 28 DAY)
-  AND submission_date < CURRENT_DATE
-  AND os = 'Darwin'
-GROUP BY darwin_version
-ORDER BY total_dau DESC
-"
+uv run scripts/query_redash.py --query-id 114866 --format table
 ```
 
 ### Client count by macOS version × architecture (aarch64 vs x86_64)
 
+Source: [Redash Query 114867](https://sql.telemetry.mozilla.org/queries/114867/)
+
 ```bash
-uv run scripts/query_redash.py --format table --sql "
-SELECT
-  CASE
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 25 THEN 'macOS 16'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 24 THEN 'macOS 15 Sequoia'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 23 THEN 'macOS 14 Sonoma'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 22 THEN 'macOS 13 Ventura'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 21 THEN 'macOS 12 Monterey'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 20 THEN 'macOS 11 Big Sur'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 19 THEN 'macOS 10.15 Catalina'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 18 THEN 'macOS 10.14 Mojave'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 17 THEN 'macOS 10.13 High Sierra'
-    WHEN SAFE_CAST(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)] AS INT64) = 16 THEN 'macOS 10.12 Sierra'
-    ELSE CONCAT('Darwin ', COALESCE(SPLIT(normalized_os_version, '.')[SAFE_OFFSET(0)], 'unknown'))
-  END AS macos_version,
-  architecture AS arch,
-  COUNT(DISTINCT client_id) AS client_count
-FROM \`moz-fx-data-shared-prod.firefox_desktop.baseline_clients_daily\`
-WHERE submission_date > DATE_SUB(CURRENT_DATE, INTERVAL 28 DAY)
-  AND normalized_os = 'Mac'
-GROUP BY macos_version, arch
-ORDER BY macos_version, arch
-"
+uv run scripts/query_redash.py --query-id 114867 --format table
 ```
 
 **Caveats:**
@@ -130,6 +101,7 @@ ORDER BY macos_version, arch
 - DAU query uses `os_version_major` (pre-split integer), no CASE mapping needed
 - `architecture` in `baseline_clients_daily` is CPU/hardware arch — Intel Firefox under Rosetta 2 reports `aarch64`
 - `SAFE_CAST` / `SAFE_OFFSET` required in arch query — some clients have null/malformed `normalized_os_version`
+- Cached results are up to 24 hours old
 
 ## Task Group Cost by Pusher
 
