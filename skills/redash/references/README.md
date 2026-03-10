@@ -68,6 +68,33 @@ Tables in `moz-fx-data-shared-prod.telemetry` related to Windows:
 - `GET /api/query_results/{result_id}` - Fetch results
 - `GET /api/queries/{query_id}` - Get query metadata (for cached results)
 
+## UDFs
+
+### `mozfun.norm.glean_windows_version_info(os, os_version, windows_build_number)`
+
+Returns a friendly Windows version string (e.g. `"Windows 11"`) from Glean telemetry columns. Use this with Glean tables like `baseline_clients_daily` where `os = 'Windows'`.
+
+```sql
+SELECT mozfun.norm.glean_windows_version_info(
+  normalized_os,            -- 'Windows'
+  normalized_os_version,    -- '10.0'
+  windows_build_number      -- 22621
+)
+-- Returns: 'Windows 11'
+```
+
+| Input | Meaning |
+|-------|---------|
+| `os = 'Windows'`, `os_version = '10.0'`, `windows_build_number >= 22000` | `Windows 11` |
+| `os = 'Windows'`, `os_version = '10.0'`, `windows_build_number < 22000` | `Windows 10` |
+| `os = 'Windows'`, `os_version = '10.0'`, `windows_build_number IS NULL` | `build unknown - likely Windows 10 or 11` |
+| `os = 'Windows'`, `os_version = '6.1'` | `Windows 7` |
+| `os = 'Windows'`, `os_version = '6.3'` | `Windows 8.1` |
+
+Source: [`mozfun.norm.glean_windows_version_info`](https://mozilla.github.io/bigquery-etl/mozfun/norm/)
+
+> **Note:** For legacy (non-Glean) telemetry tables where `os = 'Windows_NT'`, use `mozfun.norm.windows_version_info` instead.
+
 ## Dashboard Reference
 
 The Windows 10 Client Distributions dashboard:
