@@ -7,7 +7,8 @@ description: >
   query", "sql.telemetry", "BigQuery query", "Firefox data", "client counts",
   "user population", "DAU", "MAU", "macOS version", "macOS distribution", "Apple Silicon",
   "aarch64", "x86_64", "architecture distribution", "Windows version", "Windows distribution",
-  "how many users", "what share of users", "what percentage of Firefox users".
+  "how many users", "what share of users", "what percentage of Firefox users",
+  "Linux version", "Linux users", "how many Linux users", "Linux kernel".
 ---
 
 # Redash Query Tool
@@ -61,6 +62,8 @@ These natural language prompts map to queries in `references/common-queries.md`:
 | "What Windows versions are Firefox Desktop users on?" | `--query-id 65967` (Windows Version Distribution) |
 | "How many Firefox users are on Windows 11?" | `--query-id 65967` |
 | "What does the macOS adoption curve look like over time?" | `--query-id 114866`, look at darwin_version |
+| "How many Firefox users are on Linux?" | Inline SQL against `clients_daily` (Linux Version Distribution) |
+| "What Linux kernel versions do Firefox users run?" | Inline SQL against `clients_daily` |
 
 For questions not covered by a documented query, write SQL on the fly using the table references in `references/README.md`.
 

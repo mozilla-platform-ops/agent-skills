@@ -101,6 +101,30 @@ uv run scripts/query_redash.py --query-id 114867 --format table
 - `architecture` in `baseline_clients_daily` is CPU/hardware arch — Intel Firefox under Rosetta 2 reports `aarch64`
 - Cached results are up to 24 hours old
 
+## Linux Version Distribution (Firefox Desktop)
+
+Client count by Linux OS version over the last 28 days. Returns `normalized_os_version` (kernel version, e.g., `6.8`, `6.5`) and `user_count` (raw client count).
+
+Derived from: [Redash Query 115680](https://sql.telemetry.mozilla.org/queries/115680/)
+
+```bash
+uv run scripts/query_redash.py --sql "
+SELECT
+    normalized_os_version,
+    COUNT(DISTINCT client_id) AS user_count
+FROM \`moz-fx-data-shared-prod.telemetry.clients_daily\`
+WHERE submission_date = DATE_SUB(CURRENT_DATE(), INTERVAL 28 DAY)
+    AND os = 'Linux'
+GROUP BY normalized_os_version
+ORDER BY user_count DESC
+" --format table
+```
+
+**Caveats:**
+- Uses `clients_daily` (not sampled) — `user_count` is the actual distinct client count
+- `normalized_os_version` is the Linux kernel version, not the distro release version
+- Cached results depend on query execution time (not a saved Redash query)
+
 ## Task Group Cost by Pusher
 
 Cost breakdown per task group for a specific user. Replace `{start_date}` and `{user_email}` with actual values.
