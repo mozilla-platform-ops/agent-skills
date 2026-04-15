@@ -21,6 +21,10 @@ BigQuery.
 
 The pool ID in `provisioner/worker-type` format (e.g., `gecko-t/win11-64-25h2`).
 
+Both cloud pools (e.g., `gecko-t/win11-64-25h2`) and hardware pools (e.g.,
+`releng-hardware/win11-64-24h2-hw`) are supported. Hardware pools have limited
+supply-side data because they are not managed by Taskcluster worker-manager.
+
 ## How to use
 
 Run the diagnostic script. It gathers all data in parallel and produces a
@@ -44,9 +48,19 @@ verify it. The report provides these automatically.
 
 ## Interpreting results
 
+### Hardware pools (releng-hardware)
+
+Hardware pools (provisioner `releng-hardware`) are not managed by Taskcluster
+worker-manager. The worker-manager APIs return 404 for these pools, so the
+`pool_status` section will not include capacity, provider, or provisioning
+error data. Supply-side analysis is limited to the queue pending count (from
+the queue API) and BigQuery task run data (queue times, volume, expirations).
+For hardware pool supply issues, check the physical machine fleet status
+outside of this tool.
+
 ### Supply-side problems (infrastructure)
 
-Look at the `pool_status` section:
+Look at the `pool_status` section (cloud/managed pools only):
 
 - **High error count relative to running workers** — provisioning failures are
   preventing scale-up. Check `errors` for patterns (quota exhaustion, image

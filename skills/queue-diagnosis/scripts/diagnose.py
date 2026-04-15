@@ -90,14 +90,20 @@ def run_redash_query(sql: str) -> list[dict]:
 
 
 def get_pool_status(pool_id: str) -> dict:
-    """Fetch worker pool config, pending tasks, and provisioning errors."""
+    """Fetch worker pool config, pending tasks, and provisioning errors.
+
+    The queue pendingTasks API works for all pools. The worker-manager
+    APIs only work for pools managed by Taskcluster worker-manager
+    (cloud pools). Hardware pools (e.g., releng-hardware/*) return 404
+    from worker-manager, so those calls are non-fatal.
+    """
     provisioner, worker_type = pool_id.split("/", 1)
 
-    pool_info = run_tc_command([
-        "api", "workerManager", "workerPool", pool_id,
-    ])
     pending_info = run_tc_command([
         "api", "queue", "pendingTasks", pool_id,
+    ])
+    pool_info = run_tc_command([
+        "api", "workerManager", "workerPool", pool_id,
     ])
     errors = run_tc_command([
         "api", "workerManager", "workerPoolErrors", pool_id,
@@ -109,6 +115,7 @@ def get_pool_status(pool_id: str) -> dict:
     }
 
     if "error" not in pool_info:
+        status["managed"] = True
         status["provider_id"] = pool_info.get("providerId", "unknown")
         status["current_capacity"] = pool_info.get("currentCapacity", 0)
         status["requested"] = pool_info.get("requestedCount", 0)
@@ -142,6 +149,9 @@ def get_pool_status(pool_id: str) -> dict:
                 status["vm_type"] = "Spot"
             else:
                 status["vm_type"] = priority
+    else:
+        # Hardware pools are not managed by worker-manager
+        status["managed"] = False
 
     if "error" not in errors:
         error_list = errors.get("errors", [])
@@ -156,8 +166,10 @@ def get_pool_status(pool_id: str) -> dict:
             error_summary[short] = error_summary.get(short, 0) + 1
         status["errors"] = error_summary
     else:
-        status["error_count"] = "unknown"
-        status["errors"] = errors
+        # Hardware pools have no worker-manager error tracking
+        status["error_count"] = "n/a"
+        if status.get("managed") is not False:
+            status["errors"] = errors
 
     return status
 
@@ -323,10 +335,18 @@ LIMIT 30
 
 def add_pool_links(report: dict, pool_id: str) -> None:
     """Add a links section with clickable URLs for the pool."""
-    report["links"] = {
-        "worker_pool": tc_pool_url(pool_id),
-        "pending_tasks": tc_provisioner_url(pool_id),
-    }
+    pool_status = report.get("pool_status", {})
+    managed = pool_status.get("managed", True)
+
+    links = {"pending_tasks": tc_provisioner_url(pool_id)}
+    if managed:
+        links["worker_pool"] = tc_pool_url(pool_id)
+    else:
+        links["note"] = (
+            "This pool is not managed by worker-manager "
+            "(hardware pool). No worker-manager dashboard available."
+        )
+    report["links"] = links
 
 
 def main():
