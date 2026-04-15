@@ -13,7 +13,7 @@ description: >
 # Taskcluster Worker-Manager Logs
 
 Query Taskcluster worker-manager service logs from GCP Cloud Logging in the
-`moz-fx-webservices-high-prod` project.
+`moz-fx-taskcluster-prod` project.
 
 ## Knowledge References
 @references/README.md
@@ -21,7 +21,7 @@ Query Taskcluster worker-manager service logs from GCP Cloud Logging in the
 
 ## Prerequisites
 
-- `gcloud` CLI authenticated with access to `moz-fx-webservices-high-prod`
+- `gcloud` CLI authenticated with access to `moz-fx-taskcluster-prod`
 - `jq` for JSON processing
 
 ## Quick Start
@@ -71,7 +71,7 @@ Queries GCP Cloud Logging for worker-manager container logs in the
 |------|-------------|
 | `--limit`, `-n` | Max entries to return (default: 100) |
 | `--freshness` | How far back to search (default: `1h`) |
-| `--project` | Override GCP project (default: `moz-fx-webservices-high-prod`) |
+| `--project` | Override GCP project (default: `moz-fx-taskcluster-prod`) |
 
 #### Output Options
 

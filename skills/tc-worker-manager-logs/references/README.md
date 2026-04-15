@@ -49,12 +49,28 @@ different aspect of worker lifecycle management:
 | `worker-manager-workerscanner` | Scans registered workers and marks stale ones for removal |
 | `worker-manager-workerscanner-azure` | Azure-specific worker scanner using Azure APIs to check VM state |
 
+## Log Routing
+
+Taskcluster runs in GKE in `moz-fx-webservices-high-prod`, but application logs
+are **excluded** from that project's `_Default` bucket by an exclusion filter
+(`exclude-gke-tenant-namespace`) and routed via a sink to a separate project:
+
+| Component | Location |
+|-----------|----------|
+| GKE cluster | `moz-fx-webservices-high-prod` |
+| App logs (sink destination) | `moz-fx-taskcluster-prod`, bucket `gke-taskcluster-prod-log-bucket` |
+| Sink name | `gke-taskcluster-prod-sink` |
+| Sink filter | `resource.labels.namespace_name="taskcluster-prod"` |
+
+To query, you need Logging Viewer access on `moz-fx-taskcluster-prod`
+(specifically on the `gke-taskcluster-prod-log-bucket` log bucket).
+
 ## Related GCP Projects
 
 | Project ID | What lives there |
 |------------|-----------------|
-| `moz-fx-webservices-high-prod` | GKE cluster, application logs (this is where you query) |
-| `moz-fx-taskcluster-prod` | CloudSQL database, Secret Manager secrets, audit logs |
+| `moz-fx-webservices-high-prod` | GKE cluster (app logs excluded from _Default, routed to sink) |
+| `moz-fx-taskcluster-prod` | App logs (sink bucket), CloudSQL database, Secret Manager secrets |
 | `moz-fx-taskcluster-prod-4b87` | Newer project for Taskcluster infrastructure (limited access) |
 
 ## Namespaces

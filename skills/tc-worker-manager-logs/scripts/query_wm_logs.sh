@@ -12,7 +12,12 @@
 
 set -euo pipefail
 
-PROJECT="moz-fx-webservices-high-prod"
+# App logs are routed from moz-fx-webservices-high-prod (GKE cluster) to
+# moz-fx-taskcluster-prod via a log sink into gke-taskcluster-prod-log-bucket.
+PROJECT="moz-fx-taskcluster-prod"
+LOG_BUCKET="gke-taskcluster-prod-log-bucket"
+LOG_LOCATION="global"
+LOG_VIEW="_AllLogs"
 NAMESPACE="taskcluster-prod"
 LIMIT=100
 FRESHNESS="1h"
@@ -45,7 +50,7 @@ FILTERS:
 QUERY OPTIONS:
   --limit, -n       Max entries to return (default: 100)
   --freshness       How far back to search (default: 1h)
-  --project         GCP project (default: moz-fx-webservices-high-prod)
+  --project         GCP project (default: moz-fx-taskcluster-prod)
 
 OUTPUT:
   --verbose, -v     Show full JSON fields per entry
@@ -132,11 +137,14 @@ if [[ -n "$EXTRA_FILTER" ]]; then
 fi
 
 echo "Filter: ${FILTER}" >&2
-echo "Querying ${PROJECT} (limit=${LIMIT}, freshness=${FRESHNESS})..." >&2
+echo "Querying ${PROJECT} bucket=${LOG_BUCKET} (limit=${LIMIT}, freshness=${FRESHNESS})..." >&2
 
-# Run the query
+# Run the query against the log bucket where TC app logs are routed
 RESULT=$(gcloud logging read "${FILTER}" \
   --project="${PROJECT}" \
+  --bucket="${LOG_BUCKET}" \
+  --location="${LOG_LOCATION}" \
+  --view="${LOG_VIEW}" \
   --limit="${LIMIT}" \
   --format=json \
   "--freshness=${FRESHNESS}")
