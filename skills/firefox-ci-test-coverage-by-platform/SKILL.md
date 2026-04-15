@@ -2,8 +2,8 @@
 name: firefox-ci-test-coverage-by-platform
 description: Query Firefox CI test health — tier classification, skip rates, coverage gaps, and platform comparisons. Use when analyzing which tests matter on which platforms, planning OS pool migrations, or investigating test coverage gaps.
 when_to_use: tier lookup, skip rates, coverage gaps, pool comparisons, green-up planning, platform decommission, test suite analysis, CI infrastructure planning
-argument-hint: [command] [query]
-allowed-tools: Read Bash(python ${CLAUDE_SKILL_DIR}/scripts/*)
+argument-hint: "[command] [query]"
+allowed-tools: "Read Bash(python ${CLAUDE_SKILL_DIR}/scripts/*)"
 ---
 
 # Firefox CI Test Coverage by Platform
