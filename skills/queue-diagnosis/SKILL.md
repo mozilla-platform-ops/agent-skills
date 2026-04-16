@@ -62,16 +62,29 @@ outside of this tool.
 
 Look at the `pool_status` section (cloud/managed pools only):
 
+- **`warnings` list** — any entries here are supply-side issues the script
+  detected automatically. Always surface these in the summary.
+- **`stopping_pct` > 30%** — stopping workers are consuming capacity slots
+  without running tasks. Normal spot churn is under 10%; 30%+ suggests ghost
+  workers (VMs gone from the cloud but still tracked by TC) are blocking new
+  provisioning.
+- **`oldest_stopping_age_minutes` > 60** — healthy spot churn clears within
+  ~30 min. Values beyond an hour suggest worker-manager cannot reap them.
+  This is a strong signal of a ghost worker problem: the cloud VM is gone
+  but TC still tracks the worker.
 - **High error count relative to running workers** — provisioning failures are
   preventing scale-up. Check `errors` for patterns (quota exhaustion, image
   failures, deployment conflicts).
 - **Running workers well below max_capacity despite pending tasks** — Azure
   can't fulfill requests. Could be regional quota limits, spot VM scarcity, or
   image issues.
-- **Many stopping workers** — normal for spot pools (eviction churn), but if
-  stopping > 30% of running, churn is eating into effective capacity.
 - **OS provisioning timeouts** — the bootstrap script is slow. Often happens
   under load or in specific Azure regions.
+
+When `warnings` or the two signals above fire together with high pending
+tasks and low running count, the problem is supply-side capacity accounting,
+not demand. Suggest cross-referencing TC worker IDs against actual cloud
+VMs to count ghosts, and escalate to the team that owns worker-manager.
 
 Common spot pool errors that are NOT problems:
 - "Operation execution has been preempted by a more recent operation" — normal

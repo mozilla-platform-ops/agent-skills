@@ -89,6 +89,77 @@ def run_redash_query(sql: str) -> list[dict]:
         return [{"error": f"Could not parse output: {result.stdout[:500]}"}]
 
 
+STOPPING_PCT_WARN_THRESHOLD = 30
+OLDEST_STOPPING_AGE_WARN_MINUTES = 60
+
+
+def _add_supply_health_signals(status: dict, workers_info: dict) -> None:
+    """Compute supply-side health warnings from pool counts and worker list.
+
+    Adds two diagnostic signals:
+    - stopping_pct: fraction of currentCapacity in 'stopping' state. When
+      high, ghost workers may be consuming capacity slots without running
+      tasks, preventing new provisioning.
+    - oldest_stopping_age_minutes: age of the oldest worker stuck in
+      'stopping'. Healthy spot churn clears within ~30 min; values beyond
+      an hour suggest worker-manager can't reap them (e.g., VM gone from
+      Azure but TC still tracking it).
+
+    The caller is expected to surface the 'warnings' list prominently.
+    """
+    warnings = []
+
+    current = status.get("current_capacity") or 0
+    stopping = status.get("stopping") or 0
+    if current > 0:
+        pct = round(stopping / current * 100, 1)
+        status["stopping_pct"] = pct
+        if pct >= STOPPING_PCT_WARN_THRESHOLD:
+            warnings.append(
+                f"stopping workers are {pct}% of capacity "
+                f"({stopping}/{current}); healthy pools are under "
+                f"{STOPPING_PCT_WARN_THRESHOLD}%. Ghost workers may be "
+                f"blocking new provisioning."
+            )
+
+    if "error" not in workers_info:
+        workers = workers_info.get("workers", [])
+        stopping_workers = [
+            w for w in workers if w.get("state") == "stopping"
+        ]
+        if stopping_workers:
+            timestamps = sorted(
+                w.get("lastModified", "") for w in stopping_workers
+                if w.get("lastModified")
+            )
+            if timestamps:
+                oldest = timestamps[0]
+                status["oldest_stopping_lastModified"] = oldest
+                try:
+                    oldest_dt = datetime.fromisoformat(
+                        oldest.replace("Z", "+00:00"),
+                    )
+                    now = datetime.now(timezone.utc)
+                    age_min = round(
+                        (now - oldest_dt).total_seconds() / 60, 1,
+                    )
+                    status["oldest_stopping_age_minutes"] = age_min
+                    if age_min >= OLDEST_STOPPING_AGE_WARN_MINUTES:
+                        warnings.append(
+                            f"oldest stopping worker is {age_min} min old "
+                            f"(threshold {OLDEST_STOPPING_AGE_WARN_MINUTES} "
+                            f"min). Stuck stopping workers suggest "
+                            f"worker-manager cannot reap them — check for "
+                            f"VMs gone from the cloud provider while TC "
+                            f"still tracks them."
+                        )
+                except (ValueError, AttributeError):
+                    pass
+
+    if warnings:
+        status["warnings"] = warnings
+
+
 def get_pool_status(pool_id: str) -> dict:
     """Fetch worker pool config, pending tasks, and provisioning errors.
 
@@ -108,6 +179,9 @@ def get_pool_status(pool_id: str) -> dict:
     errors = run_tc_command([
         "api", "workerManager", "workerPoolErrors", pool_id,
     ])
+    workers_info = run_tc_command([
+        "api", "workerManager", "listWorkersForWorkerPool", pool_id,
+    ])
 
     status = {
         "pool_id": pool_id,
@@ -122,6 +196,8 @@ def get_pool_status(pool_id: str) -> dict:
         status["running"] = pool_info.get("runningCount", 0)
         status["stopping"] = pool_info.get("stoppingCount", 0)
         status["stopped"] = pool_info.get("stoppedCount", 0)
+
+        _add_supply_health_signals(status, workers_info)
 
         config = pool_info.get("config", {})
         launch_configs = config.get("launchConfigs", [{}])
