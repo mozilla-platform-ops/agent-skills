@@ -71,6 +71,21 @@ Look at the `pool_status` section (cloud/managed pools only).
   shifts, not blocked. Mention it but don't treat it as a crisis.
 
 **Signal fields:**
+- `running_plus_requested` — workers actually doing or about to do work.
+  This is the number shown as "running" in the TC worker-manager UI. When
+  diagnosing, this is the capacity the pool actually has today.
+- `current_capacity` — TC's internal counter = running + requested +
+  stopping. Worker-manager uses this (not running_plus_requested) to
+  decide whether to provision more workers. A pool can show
+  `current_capacity` near `max_capacity` while almost nothing is actually
+  running, because stopping workers are still counted. A large gap
+  between `running_plus_requested` and `current_capacity` is the ghost
+  signature: TC is accounting for workers that no longer exist, and the
+  provisioner is refusing to scale up because it thinks the pool is
+  already at the cap.
+- `running_pct_of_max` — `running_plus_requested / max_capacity`. If this
+  is low (e.g. 10%) while `capacity_headroom_pct` is also near 0, the
+  pool is blocked on ghosts, not at real capacity.
 - `stopping_pct` — fraction of currentCapacity in 'stopping'. Healthy spot
   churn is under ~10%; 30%+ is unusual regardless of urgency.
 - `oldest_stopping_age_minutes` — how long the oldest stopping worker has
@@ -78,18 +93,30 @@ Look at the `pool_status` section (cloud/managed pools only).
   worker-manager likely can't reap them. This is a strong signal that
   cloud VMs are gone but TC is still tracking them.
 - `capacity_headroom` / `capacity_headroom_pct` — how many more workers
-  worker-manager could request before hitting maxCapacity. Low headroom
-  with pending tasks is the "can't scale up" signal.
+  worker-manager could request before hitting maxCapacity, based on
+  `current_capacity`. Low headroom with pending tasks is the "can't
+  scale up" signal.
+- `error_stats_7d.total` and `.by_title` / `.by_code` — authoritative
+  per-pool error counts over 7 days from `workerPoolErrorStats`. Use
+  this for trend reasoning.
+- `errors_by_title` / `errors_by_description` / `errors_by_region` —
+  counts from the most recent page of `listWorkerPoolErrors`. Useful for
+  identifying dominant failure modes (preempted vs OS-timeout vs quota)
+  and whether they concentrate in specific Azure regions.
 
 **Other supply-side issues to check:**
 - **High error count relative to running workers** — provisioning failures
-  are preventing scale-up. Check `errors` for patterns (quota exhaustion,
-  image failures, deployment conflicts).
+  are preventing scale-up. Check `errors_by_title` and
+  `errors_by_description` for patterns (quota exhaustion, image failures,
+  deployment conflicts). Discount `OperationPreempted` entries — those
+  are normal spot churn noise, not real failures.
 - **Running workers well below max_capacity despite pending tasks** — cloud
-  provider can't fulfill requests. Could be regional quota limits, spot VM
-  scarcity, or image issues.
+  provider can't fulfill requests, or ghosts are blocking scale-up.
+  Compare `running_plus_requested` with `current_capacity` to decide
+  which.
 - **OS provisioning timeouts** — the bootstrap script is slow. Often happens
-  under load or in specific regions.
+  under load or in specific regions. Look for concentration in
+  `errors_by_region`.
 
 **When ghosts are suspected**, cross-reference TC worker IDs against actual
 cloud VMs. For Azure pools with resource groups named

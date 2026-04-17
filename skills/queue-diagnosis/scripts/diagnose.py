@@ -112,6 +112,10 @@ def _add_supply_health_signals(status: dict, workers_info: dict) -> None:
     - oldest_stopping_age_minutes: age of the oldest stopping worker
     - capacity_headroom: max_capacity - current_capacity (how many more
       workers worker-manager could request right now)
+    - running_plus_requested: workers that are actually doing or about to
+      do work. This is the number shown as "running" in the TC UI. A
+      large gap between running_plus_requested and current_capacity means
+      stopping workers are inflating the TC bookkeeping — often ghosts.
     """
     warnings = []
     notes = []
@@ -119,10 +123,14 @@ def _add_supply_health_signals(status: dict, workers_info: dict) -> None:
     current = status.get("current_capacity") or 0
     stopping = status.get("stopping") or 0
     running = status.get("running") or 0
+    requested = status.get("requested") or 0
     pending = status.get("pending_tasks")
     pending_num = pending if isinstance(pending, int) else 0
     max_cap = status.get("max_capacity")
     max_cap_num = max_cap if isinstance(max_cap, int) else None
+
+    running_plus_requested = running + requested
+    status["running_plus_requested"] = running_plus_requested
 
     stopping_pct = None
     if current > 0:
@@ -136,6 +144,9 @@ def _add_supply_health_signals(status: dict, workers_info: dict) -> None:
         if max_cap_num > 0:
             headroom_pct = round(headroom / max_cap_num * 100, 1)
             status["capacity_headroom_pct"] = headroom_pct
+            status["running_pct_of_max"] = round(
+                running_plus_requested / max_cap_num * 100, 1,
+            )
 
     oldest_age = None
     if "error" not in workers_info:
@@ -173,12 +184,16 @@ def _add_supply_health_signals(status: dict, workers_info: dict) -> None:
     )
     if blocking:
         warnings.append(
-            f"pool has {pending_num} pending tasks but capacity is "
-            f"{current}/{max_cap_num} ({round(headroom / max_cap_num * 100, 1)}% "
-            f"headroom) and {stopping_pct}% of capacity is in 'stopping'. "
-            f"If those stopping workers are ghosts (VMs gone from cloud), "
-            f"they are blocking new provisioning. Cross-reference TC "
-            f"worker IDs against cloud VMs to confirm."
+            f"pool has {pending_num} pending tasks, currentCapacity is "
+            f"{current}/{max_cap_num} "
+            f"({round(headroom / max_cap_num * 100, 1)}% headroom), but only "
+            f"{running_plus_requested} workers are actually running or "
+            f"requested. The remaining {stopping} slots ({stopping_pct}% of "
+            f"capacity) are 'stopping' — if those are ghosts (VMs gone from "
+            f"cloud), they are blocking new provisioning. TC's "
+            f"currentCapacity counts stopping workers, so the provisioner "
+            f"won't scale up until it reaps them. Cross-reference TC worker "
+            f"IDs against cloud VMs to confirm (see SKILL.md)."
         )
 
     # Informational: unusual state but not urgent
@@ -233,7 +248,11 @@ def get_pool_status(pool_id: str) -> dict:
         "api", "workerManager", "workerPool", pool_id,
     ])
     errors = run_tc_command([
-        "api", "workerManager", "workerPoolErrors", pool_id,
+        "api", "workerManager", "listWorkerPoolErrors", pool_id,
+    ])
+    error_stats = run_tc_command([
+        "api", "workerManager", "workerPoolErrorStats",
+        f"--workerPoolId={pool_id}",
     ])
     workers_info = run_tc_command([
         "api", "workerManager", "listWorkersForWorkerPool", pool_id,
@@ -287,22 +306,48 @@ def get_pool_status(pool_id: str) -> dict:
         status["managed"] = False
 
     if "error" not in errors:
-        error_list = errors.get("errors", [])
-        status["error_count"] = len(error_list)
+        # The CLI returns the list under 'workerPoolErrors', not 'errors'.
+        # Using the wrong key previously made the report always report
+        # error_count: 0 even when the pool had hundreds of errors.
+        error_list = errors.get("workerPoolErrors", [])
+        status["error_count_recent_page"] = len(error_list)
 
-        # Summarize error types
-        error_summary = {}
+        # Summarize error types by title and by first line of description.
+        # OperationPreempted entries are normal spot-churn noise; the caller
+        # should discount them when reasoning about supply-side health.
+        by_title = {}
+        by_description = {}
+        by_region = {}
         for err in error_list:
+            title = err.get("title", "unknown")
+            by_title[title] = by_title.get(title, 0) + 1
             desc = err.get("description", "unknown")
-            # Truncate long Azure error messages to the first line
             short = desc.split("\n")[0][:120]
-            error_summary[short] = error_summary.get(short, 0) + 1
-        status["errors"] = error_summary
+            by_description[short] = by_description.get(short, 0) + 1
+            region = err.get("extra", {}).get("workerGroup", "?")
+            by_region[region] = by_region.get(region, 0) + 1
+        status["errors_by_title"] = by_title
+        status["errors_by_description"] = by_description
+        status["errors_by_region"] = by_region
     else:
         # Hardware pools have no worker-manager error tracking
-        status["error_count"] = "n/a"
+        status["error_count_recent_page"] = "n/a"
         if status.get("managed") is not False:
-            status["errors"] = errors
+            status["errors_cli_error"] = errors
+
+    # Authoritative 7d/24h aggregates from workerPoolErrorStats. Prefer
+    # these over the recent-page counts above for trend reasoning, since
+    # the listing endpoint is paginated.
+    if "error" not in error_stats:
+        totals = error_stats.get("totals", {})
+        status["error_stats_7d"] = {
+            "total": totals.get("total"),
+            "by_title": totals.get("title", {}),
+            "by_code": totals.get("code", {}),
+            "by_launch_config": totals.get("launchConfig", {}),
+            "daily": totals.get("daily", {}),
+            "hourly_last_24h": totals.get("hourly", {}),
+        }
 
     return status
 
