@@ -2,8 +2,8 @@
 name: fxci-task-cost-attribution
 description: >
   Compute per-task or per-push cost for FXCI tasks across both clouds (GCP +
-  Azure) by joining BigQuery billing exports against `fxci_derived.task_runs_v1`
-  and `fxci_derived.tasks_v2`. Use when answering "how much did task X cost",
+  Azure) by joining BigQuery billing exports, Taskcluster worker metrics,
+  `fxci_derived.task_runs_v1`, and `fxci_derived.tasks_v2`. Use when answering "how much did task X cost",
   "how much did this push cost", "what does an autoland run cost", or "what's
   the cost breakdown by kind/label/tree for this window". This is the
   per-task counterpart to `azure-cost-analysis` (which does pool/SKU-level
@@ -26,11 +26,12 @@ questions.
 
 ## What this skill does
 
-Joins three datasets to produce a per-task cost row:
+Joins four datasets to produce a per-task cost row:
 
 1. **GCP billing export** (`moz-fx-data-shared-prod.billing_syndicate.gcp_billing_export_resource_v1_*`) — VM cost per resource per day, GCP side
 2. **Azure billing export** (`moz-fx-data-billing-prod-9147.azure_billing_raw.fxci_daily_actual_load`) — VM cost per resource per day, Azure side
-3. **FXCI task data** (`moz-fx-data-shared-prod.fxci_derived.task_runs_v1`, `tasks_v2`) — task starts/resolves, tree, kind, label
+3. **Taskcluster worker metrics** (`moz-fx-data-shared-prod.taskclusteretl.worker_metrics`) — Azure generic-worker lifecycle intervals
+4. **FXCI task data** (`moz-fx-data-shared-prod.fxci_derived.task_runs_v1`, `tasks_v2`) — task starts/resolves, tree, kind, label
 
 The GCP side already exists in `fxci_derived.task_run_costs_v1`; this skill
 joins to that table directly. The Azure side has no production equivalent yet
@@ -46,7 +47,7 @@ billing datasets.
 - @references/duckdb-local-join.md — *macOS + Windows install and run instructions*
 
 **Methodology and caveats:**
-- @references/methodology.md — *uptime approximation, single-task VM exclusion, why ~25–30% of Azure spend is unattributed*
+- @references/methodology.md — *worker-metrics uptime, attribution limits, and what is not covered*
 
 **Background:**
 - @references/jira-context.md — *RELOPS-2330 ticket summary and what the production version will look like*
@@ -54,9 +55,10 @@ billing datasets.
 **Standalone queries** (one file per stage, in `queries/`):
 - `01_gcp_per_task.sql` — GCP per-task cost via existing `task_run_costs_v1` (single-account)
 - `02_azure_vm_cost.sql` — Azure per-VM-day cost from `azure_billing_raw`
-- `03_azure_task_runs_all.sql` — All `vm-*` task_runs in window (uptime denominator must be cross-tree)
-- `04_local_join.sql` — DuckDB cross-cloud join + per-task cost computation
-- `05_summary.sql` — DuckDB aggregations (by tree, kind, label, push)
+- `03_azure_task_runs_all.sql` — All `vm-*` task_runs in window
+- `04_azure_worker_metrics.sql` — Azure worker uptime from generic-worker lifecycle events
+- `05_local_join.sql` — DuckDB cross-cloud join + per-task cost computation
+- `06_summary.sql` — DuckDB aggregations (by tree, kind, label, push)
 
 ## Prerequisites
 
@@ -100,11 +102,15 @@ gcloud config set account <user>@mozilla.com
 bq query --project_id=mozdata --use_legacy_sql=false --format=csv --max_rows=5000000 \
   < queries/03_azure_task_runs_all.sql > azure_task_runs_all.csv
 
-# 4. Local cross-cloud join (DuckDB)
-duckdb < queries/04_local_join.sql
+# 4. Pull Azure worker uptime from Taskcluster worker metrics
+bq query --project_id=mozdata --use_legacy_sql=false --format=csv --max_rows=5000000 \
+  < queries/04_azure_worker_metrics.sql > azure_worker_uptime.csv
 
-# 5. Aggregations
-duckdb < queries/05_summary.sql
+# 5. Local cross-cloud join (DuckDB)
+duckdb < queries/05_local_join.sql
+
+# 6. Aggregations
+duckdb < queries/06_summary.sql
 ```
 
 ### Windows (PowerShell)
@@ -128,16 +134,22 @@ Get-Content queries\03_azure_task_runs_all.sql |
   bq query --project_id=mozdata --use_legacy_sql=false --format=csv --max_rows=5000000 |
   Out-File -Encoding utf8 azure_task_runs_all.csv
 
-# 4. Local cross-cloud join
-Get-Content queries\04_local_join.sql | duckdb
+# 4. Azure worker uptime from Taskcluster worker metrics
+Get-Content queries\04_azure_worker_metrics.sql |
+  bq query --project_id=mozdata --use_legacy_sql=false --format=csv --max_rows=5000000 |
+  Out-File -Encoding utf8 azure_worker_uptime.csv
 
-# 5. Aggregations
-Get-Content queries\05_summary.sql | duckdb
+# 5. Local cross-cloud join
+Get-Content queries\05_local_join.sql | duckdb
+
+# 6. Aggregations
+Get-Content queries\06_summary.sql | duckdb
 ```
 
-The four CSVs (`gcp_per_task.csv`, `azure_vm_cost.csv`, `azure_task_runs_all.csv`,
-plus the DuckDB-emitted `azure_per_task.csv` and `autoland_per_task.csv`) all
-land in the working directory. Use any working dir — DuckDB reads relative paths.
+The BigQuery CSVs (`gcp_per_task.csv`, `azure_vm_cost.csv`,
+`azure_task_runs_all.csv`, `azure_worker_uptime.csv`) plus the DuckDB-emitted
+`azure_per_task.csv` and `autoland_per_task.csv` all land in the working
+directory. Use any working dir — DuckDB reads relative paths.
 
 ## Editing the date window
 
@@ -148,14 +160,14 @@ Each `.sql` file has placeholders at the top:
 -- WINDOW_END   = 'YYYY-MM-DD'
 ```
 
-Find-and-replace `2026-04-28` and `2026-05-02` with your window across all five
+Find-and-replace `2026-04-28` and `2026-05-02` with your window across all six
 files before running. Keep the window the same in all files or the join will
 miss rows.
 
 ## Common follow-up questions
 
 - **"How much did push X cost?"** — Filter `autoland_per_task.csv` by
-  `task_group_id`, sum `run_cost_usd`. See `05_summary.sql` for the pattern.
+  `task_group_id`, sum `run_cost_usd`. See `06_summary.sql` for the pattern.
 - **"How much does an average autoland run cost?"** — Sum `run_cost_usd`,
   divide by `COUNT(DISTINCT task_group_id)`.
 - **"What kind of test costs the most per run on Windows?"** — Filter to
@@ -166,34 +178,23 @@ miss rows.
 Two systematic accuracy issues. See `references/methodology.md` for the full
 treatment.
 
-**1. Uptime approximation (~10% error band).** Azure has no real VM-uptime
-signal, so the skill approximates `vm_uptime ≈ MAX(resolved) - MIN(started)`
-per (worker, day) from `task_runs_v1`. The skill defaults to a `>=` filter
-with `LEAST(1.0, ratio)` cap, which is one improvement over the strict `>`
-in the original RELOPS-2330 reference query — empirically this shrinks the
-unattributed Azure spend gap from ~27% to ~12%. The remaining 12% is
-genuine idle time on multi-task VMs (~8%) and pool overhead with no task
-to bill (~4%). Per-tree totals are within ±10% of truth in the captured
-slice.
+**1. Worker-metrics uptime is a Taskcluster signal.** Azure uptime comes from
+generic-worker lifecycle events in `taskclusteretl.worker_metrics`. This is
+better than a first-task/last-task proxy, but it still does not include cloud
+resource lifetime after the worker has shut down and before Azure finishes
+deleting the VM.
 
-To exactly reproduce the RELOPS-2330 ticket query (strict `>`, single-task
-VMs excluded), edit `queries/04_local_join.sql` — instructions are in the
-file header.
-
-**2. Coverage — only VM compute on `vm-*` workers (~87.5% of FXCI Azure
-spend).** Network (4.1%), storage / disks (2.6%), bandwidth egress (1.1%),
-and non-`vm-*` VMs like management/image-build/persistent scriptworkers
-(4.7%) are NOT joined. Per-tree numbers should be read as **VM-compute,
-attributable share, ±10–15%**. Add ~10–15% mentally for full Azure cost
-if you need a total figure. RELOPS-2330 doesn't cover non-VM-compute
-resources either.
+**2. Coverage is VM compute on ephemeral `vm-*` workers.** Network, storage,
+bandwidth, management VMs, image-build VMs, and persistent scriptworkers are
+not joined. Per-tree numbers should be read as attributable VM-compute cost,
+not as a full Azure invoice reconstruction. RELOPS-2330 has the same scope.
 
 **Marginal vs attributed cost.** The skill answers "what share of
 attributable VM-compute cost was caused by this task?" *not* "what would we
 save by killing this task?" Pool overhead is largely fixed — don't use
 these numbers for "cut autoland in half, save half the cost" reasoning.
 
-GCP (`task_run_costs_v1`) uses real Cloud Monitoring uptime, so GCP
-per-task numbers are more accurate than Azure. `releng-hardware` (talos,
+GCP (`task_run_costs_v1`) uses Cloud Monitoring uptime. Azure uses
+Taskcluster worker metrics. `releng-hardware` (talos,
 browsertime, Mac, Windows hardware) is bare-metal and never appears in
 either billing export.

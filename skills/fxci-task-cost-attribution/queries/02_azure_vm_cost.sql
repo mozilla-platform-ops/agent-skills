@@ -14,8 +14,7 @@
 -- mozilla.com SSO account that reads moz-fx-data-shared-prod has no access
 -- here. See ../references/auth-split.md.
 --
--- VM-name regex matches FXCI naming convention `vm-<id>`. The 99.9% match rate
--- in 5-day windows means almost no Azure VM-spend rows are dropped.
+-- VM-name regex matches the FXCI `vm-<id>` naming convention.
 --
 -- See: ../references/methodology.md
 -- ============================================================

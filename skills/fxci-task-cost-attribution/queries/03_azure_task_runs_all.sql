@@ -10,11 +10,9 @@
 --           moz-fx-data-shared-prod.fxci_derived.tasks_v2
 -- Output:   azure_task_runs_all.csv
 --
--- DO NOT add `tags.project = 'autoland'` here. The uptime denominator
--- (MAX(resolved) - MIN(started) per VM-day) MUST count cross-tree task_runs,
--- otherwise per-task cost is overstated when a VM ran tasks from multiple
--- branches in the same day. The tree filter is applied AFTER the join in
--- 04_local_join.sql.
+-- DO NOT add `tags.project = 'autoland'` here. A VM can run tasks from
+-- multiple branches in the same day. The tree filter is applied AFTER the
+-- join in 05_local_join.sql.
 --
 -- See: ../references/methodology.md
 -- ============================================================

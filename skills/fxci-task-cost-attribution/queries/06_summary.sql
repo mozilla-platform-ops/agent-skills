@@ -3,7 +3,7 @@
 -- ============================================================
 -- Inputs (CWD):
 --   gcp_per_task.csv     (from queries/01)
---   azure_per_task.csv   (from queries/04)
+--   azure_per_task.csv   (from queries/05)
 -- Output:
 --   autoland_per_task.csv  (combined; column-compatible across clouds)
 --   plus inline tables (totals, top kinds, top labels, top pushes)

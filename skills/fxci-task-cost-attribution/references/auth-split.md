@@ -8,7 +8,7 @@ the workflow uses two separate gcloud accounts and joins locally.
 
 | Project | Dataset | Account | Why |
 |---|---|---|---|
-| `moz-fx-data-shared-prod` | `fxci_derived.task_runs_v1`, `fxci_derived.tasks_v2`, `fxci_derived.task_run_costs_v1`, `billing_syndicate.gcp_billing_export_resource_v1_*` | `<user>@mozilla.com` (Mozilla SSO) | Standard Mozilla data access, granted to most engineers |
+| `moz-fx-data-shared-prod` | `fxci_derived.task_runs_v1`, `fxci_derived.tasks_v2`, `fxci_derived.task_run_costs_v1`, `taskclusteretl.worker_metrics`, `billing_syndicate.gcp_billing_export_resource_v1_*` | `<user>@mozilla.com` (Mozilla SSO) | Standard Mozilla data access, granted to most engineers |
 | `moz-fx-data-billing-prod-9147` | `azure_billing_raw.fxci_daily_actual_load` | `<user>@firefox.gcp.mozilla.com` | Billing project; access via `workgroup:releasesre/admins` → `finops/viewers` → `roles/viewer`. Granted by Terraform (see [MZCLD-2783](https://mozilla-hub.atlassian.net/browse/MZCLD-2783)) |
 
 The Mozilla SSO account has **no** access to `azure_billing_raw`. The
@@ -33,7 +33,7 @@ with `gcloud config set account <email>`.
 ### Per-query account switch
 
 ```bash
-# Stage 1 + 3 (mozdata)
+# Stages 1, 3, and 4 (mozdata)
 gcloud config set account <user>@mozilla.com
 
 # Stage 2 (Azure billing)
@@ -52,12 +52,11 @@ gcloud config set account <user>@firefox.gcp.mozilla.com
 ## When this auth split goes away
 
 The split exists because billing IAM has not been granted to the bigquery-etl
-CI dry-run service account or to the Airflow service account that runs
-`bqetl_fxci`. Once that Terraform PR lands, the production version
+CI dry-run service account. Once that Terraform PR lands, the production version
 (`fxci_derived.task_run_costs_v1` extended with Azure VMs, plus a new
-`worker_costs_azure_v1`) will run end-to-end as a service account, and most
-users won't need either of these accounts directly — they'll just query
-`task_run_costs_v1` like they do today.
+`worker_costs_azure_v1` and `worker_metrics_azure_v1`) will run end-to-end as a
+service account, and most users won't need either of these accounts directly —
+they'll just query `task_run_costs_v1` like they do today.
 
 Tracking ticket: [RELOPS-2330](https://mozilla-hub.atlassian.net/browse/RELOPS-2330).
 

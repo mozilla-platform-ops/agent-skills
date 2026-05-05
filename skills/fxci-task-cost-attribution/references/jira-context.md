@@ -13,8 +13,9 @@ VMs as well. The shape of the work:
 | Repo | Change |
 |---|---|
 | `mozilla/bigquery-etl` | New `sql/moz-fx-data-shared-prod/fxci_derived/worker_costs_azure_v1/` mirroring the existing `worker_costs_v1`, reading from `azure_billing_raw.*_load`, regex VM name out of `ResourceId`. |
-| `mozilla/bigquery-etl` | Modify `sql/moz-fx-data-shared-prod/fxci_derived/task_run_costs_v1/query.sql` to UNION Azure cost into the `worker_cost` CTE and approximated Azure uptime into `worker_metric`. |
-| `mozilla/global-platform-admin` | Terraform PR granting `roles/bigquery.dataViewer` on `moz-fx-data-billing-prod-9147:azure_billing_raw` to the bigquery-etl CI dry-run SA + the Airflow SA running `bqetl_fxci`. |
+| `mozilla/bigquery-etl` | New `sql/moz-fx-data-shared-prod/fxci_derived/worker_metrics_azure_v1/` deriving Azure uptime from `taskclusteretl.worker_metrics`. |
+| `mozilla/bigquery-etl` | Modify `sql/moz-fx-data-shared-prod/fxci_derived/task_run_costs_v1/query.sql` to UNION Azure cost and Azure worker metrics into the existing attribution path. |
+| `mozilla/global-platform-admin` | Terraform PR granting `roles/bigquery.dataViewer` on `moz-fx-data-billing-prod-9147:azure_billing_raw` to the bigquery-etl CI dry-run SA. |
 
 `mozilla/docker-etl` is not touched. The Airflow DAG (`bqetl_fxci`) is
 auto-generated from the SQL.
@@ -37,11 +38,10 @@ This skill stays useful for:
 
 The ticket is the source of truth for:
 
-- The methodology decision (`MAX(resolved) - MIN(started)` uptime proxy and
-  why it was chosen over building an Azure Monitor puller)
+- The current production-pipeline shape
+- The move from task-run-derived uptime to `taskclusteretl.worker_metrics`
 - The IAM split between `<user>@mozilla.com` and `<user>@firefox.gcp.mozilla.com`
-- Validation results from 2026-05-05 (Azure regex match rate, cross-cloud
-  join sanity)
+- Validation notes for Azure `ResourceId` extraction and worker-metrics coverage
 - Pending work: which Terraform PR needs to land for end-to-end execution
 
 ## Related tickets

@@ -6,36 +6,30 @@
 -- Inputs (CWD):
 --   azure_vm_cost.csv        (from queries/02)
 --   azure_task_runs_all.csv  (from queries/03; ALL trees, not just autoland)
+--   azure_worker_uptime.csv  (from queries/04; generic-worker lifecycle uptime)
 -- Output:
 --   azure_per_task.csv       (per-task Azure cost rows, autoland only)
 --
--- Methodology (mirrors RELOPS-2330 with one improvement):
---   uptime_sec  ≈  EPOCH(MAX(resolved)) - EPOCH(MIN(started))   per (worker, date)
+-- Methodology:
 --   run_cost    =  LEAST(1.0, task_duration / uptime) * vm_cost_for_that_VM_day
 --
--- The reference query in RELOPS-2330 uses `uptime_sec > task_duration_sec`,
--- which excludes single-task VMs entirely. We use `>=` and cap the ratio at
--- 1.0 — for a single-task VM this attributes 100% of vm_cost to that one
--- task, which is closer to truth (the VM existed only for that task).
--- Empirically this shrinks the unattributed gap from ~27% to ~12% on Azure.
--- See ../references/methodology.md for the full bucket decomposition.
+-- The uptime denominator comes from taskclusteretl.worker_metrics, not from
+-- task_runs first/last timestamps. The ratio is capped at 1.0 to avoid
+-- over-attributing rows with missing or short lifecycle intervals.
 -- ============================================================
 
 CREATE OR REPLACE VIEW vm_cost AS
 SELECT worker_id, usage_date::DATE AS usage_date, cost_usd
 FROM read_csv_auto('azure_vm_cost.csv');
 
--- All vm-* task_runs in the window (any tree). Used for the uptime denominator.
+-- All vm-* task_runs in the window (any tree). Used for attribution rows.
 CREATE OR REPLACE VIEW task_runs_all AS
 SELECT * FROM read_csv_auto('azure_task_runs_all.csv', AUTO_DETECT=TRUE);
 
 CREATE OR REPLACE VIEW vm_uptime AS
-SELECT
-  worker_id,
-  usage_date,
-  EPOCH(MAX(resolved)) - EPOCH(MIN(started)) AS uptime_sec
-FROM task_runs_all
-GROUP BY worker_id, usage_date;
+SELECT worker_id, usage_date::DATE AS usage_date, SUM(uptime_sec) AS uptime_sec
+FROM read_csv_auto('azure_worker_uptime.csv', AUTO_DETECT=TRUE)
+GROUP BY worker_id, usage_date::DATE;
 
 CREATE OR REPLACE TABLE azure_per_task AS
 SELECT
@@ -64,7 +58,6 @@ WHERE u.uptime_sec >= tr.task_duration_sec
 COPY azure_per_task TO 'azure_per_task.csv' (HEADER, DELIMITER ',');
 
 -- Sanity check: how much Azure VM-day cost is attributed vs total in window?
--- A 25-30% gap is expected — see methodology.md.
 SELECT 'attributed_per_task_total (this tree)' AS metric,
        printf('%.2f', SUM(run_cost_usd)) AS usd,
        COUNT(*) AS rows
