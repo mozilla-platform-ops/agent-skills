@@ -163,19 +163,37 @@ miss rows.
 
 ## Caveats (important — read before quoting numbers)
 
-This skill defaults to a `>=` filter with `LEAST(1.0, ratio)` cap on the
-attribution formula, which is one improvement over the strict `>` in the
-original RELOPS-2330 reference query. Empirically this shrinks the
-unattributed Azure spend gap from ~27% to ~12% — the remaining 12% is
-genuine idle time on multi-task VMs (~8%) and pool overhead with no task to
-bill (~4%). Per-tree totals are within ±10% of truth, not lower bounds.
+Two systematic accuracy issues. See `references/methodology.md` for the full
+treatment.
 
-If you need exact RELOPS-2330 reproduction (strict `>` filter, single-task
+**1. Uptime approximation (~10% error band).** Azure has no real VM-uptime
+signal, so the skill approximates `vm_uptime ≈ MAX(resolved) - MIN(started)`
+per (worker, day) from `task_runs_v1`. The skill defaults to a `>=` filter
+with `LEAST(1.0, ratio)` cap, which is one improvement over the strict `>`
+in the original RELOPS-2330 reference query — empirically this shrinks the
+unattributed Azure spend gap from ~27% to ~12%. The remaining 12% is
+genuine idle time on multi-task VMs (~8%) and pool overhead with no task
+to bill (~4%). Per-tree totals are within ±10% of truth in the captured
+slice.
+
+To exactly reproduce the RELOPS-2330 ticket query (strict `>`, single-task
 VMs excluded), edit `queries/04_local_join.sql` — instructions are in the
-file header. See `references/methodology.md` for the full bucket
-decomposition and rationale.
+file header.
 
-GCP and `releng-hardware` (talos, browsertime, Mac, Windows hardware) pools
-have different attribution properties — the GCP side from `task_run_costs_v1`
-is fully attributed; hardware pools are bare-metal and never appear in either
-billing export.
+**2. Coverage — only VM compute on `vm-*` workers (~87.5% of FXCI Azure
+spend).** Network (4.1%), storage / disks (2.6%), bandwidth egress (1.1%),
+and non-`vm-*` VMs like management/image-build/persistent scriptworkers
+(4.7%) are NOT joined. Per-tree numbers should be read as **VM-compute,
+attributable share, ±10–15%**. Add ~10–15% mentally for full Azure cost
+if you need a total figure. RELOPS-2330 doesn't cover non-VM-compute
+resources either.
+
+**Marginal vs attributed cost.** The skill answers "what share of
+attributable VM-compute cost was caused by this task?" *not* "what would we
+save by killing this task?" Pool overhead is largely fixed — don't use
+these numbers for "cut autoland in half, save half the cost" reasoning.
+
+GCP (`task_run_costs_v1`) uses real Cloud Monitoring uptime, so GCP
+per-task numbers are more accurate than Azure. `releng-hardware` (talos,
+browsertime, Mac, Windows hardware) is bare-metal and never appears in
+either billing export.

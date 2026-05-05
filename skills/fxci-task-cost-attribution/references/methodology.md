@@ -146,15 +146,59 @@ In rough order of effort:
 Until one of those lands, the `>=` default in this skill is the best
 available approximation.
 
-## Related caveats unrelated to the gap
+## Coverage — what's NOT in the cost
 
+The skill's `virtualMachines/vm-*` filter captures only VM compute meters
+on ephemeral task workers. There are systematic exclusions to be aware of.
+
+Empirical breakdown of total FXCI Azure spend in a 5-day window
+($107,296 total):
+
+| Meter category | Cost | Share | In skill? |
+|---|---:|---:|---|
+| VM compute, `vm-*` workers | $93,854 | 87.5% | ✅ Yes |
+| VM compute, non-`vm-*` workers (management, image-build, persistent scriptworkers) | $5,012 | 4.7% | ❌ Excluded — not per-task |
+| Virtual Network (NICs, public IPs) | $4,437 | 4.1% | ❌ Not joined |
+| Storage (managed disks) | $2,799 | 2.6% | ❌ Not joined |
+| Bandwidth (network egress) | $1,190 | 1.1% | ❌ Not joined |
+| Misc (Automation, Key Vault) | $3 | 0.0% | ❌ Not joined |
+
+**Practical reading:**
+
+- **VM compute is 92.1% of FXCI Azure spend.** The skill captures 87.5% (the
+  `vm-*` ephemeral worker subset).
+- **Non-VM resources are ~8% of FXCI Azure spend.** These are real per-task
+  costs in spirit (a task that uploads a 5GB artifact causes egress; a task
+  that uses a 100GB workspace causes disk cost) but the billing export
+  attributes them per-resource (disk, IP, egress meter), not per-VM. To
+  attribute them per-task you would need to know which disk was attached to
+  which VM during which time window, which is not in scope for either this
+  skill or RELOPS-2330.
+- **Per-tree numbers from this skill are VM-compute, attributable share.**
+  Add ~10–15% mentally for full Azure cost including network/storage if you
+  need to quote a total Azure cost figure.
+
+## Related caveats
+
+- **Day-boundary tasks** — the join keys on `DATE(tr.started)`. A task that
+  starts at 23:55 UTC and resolves at 00:30 UTC the next day is bucketed
+  into day 1 with a 35-minute duration, and the VM cost for day 1 is
+  whatever Azure billed before midnight. ~1–2% of tasks may have odd
+  ratios from this effect. Negligible for totals over multi-day windows.
+- **Marginal vs attributed cost** — the skill answers "what share of
+  attributable VM-compute cost was caused by this task?" *not* "what would
+  we save by killing this task?" Idle pool warmups, image-build VMs, and
+  provisioning failures would still happen with less traffic. Don't use
+  these numbers for "if we cut autoland in half we save half the cost" —
+  the saving would be smaller because pool overhead is largely fixed.
 - **Hardware pools** (`releng-hardware`: Mac, Windows hardware, talos /
   browsertime perftest) are bare-metal. They never appear in either billing
   export. Cost is allocated to the pool by IT-ops, not per-task attributable
   via this skill.
 - **`tags.project`** is the tree (autoland, try, mozilla-central), not the
   individual try-push. For per-push attribution, use `task_group_id`.
-- **The GCP side** (`task_run_costs_v1`) has its own ~10–15% gap from
-  similar dynamics — idle time, single-task VMs. The production table
-  attributes only what it can; the rest sits in `worker_costs_v1` as
-  unallocated VM cost.
+- **The GCP side** (`task_run_costs_v1`) uses real Cloud Monitoring uptime,
+  not a `MAX-MIN` proxy, so per-task GCP numbers are more accurate than
+  Azure. It has its own ~10–15% gap from idle time and single-task VM
+  logic; that unallocated slice sits in `worker_costs_v1` and isn't
+  attributed to any task.
