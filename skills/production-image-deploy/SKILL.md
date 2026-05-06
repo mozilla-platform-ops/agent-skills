@@ -220,6 +220,28 @@ Reference templates and worked examples: `references/pr-templates.md`.
   fxci-config (commonly `rcurranmoz`). Ask if unsure.
 - Auto-merge (squash) is the team default for these PRs once green.
 
+## Phase 4 — Announce in Slack
+
+After the fxci-config PR **merges**, draft a Slack changelog so people
+running CI know which images flipped. The team's convention is a
+plain-text post with three sections:
+
+1. A one-line "we've updated …" header.
+2. 2–4 bullets describing what's new (sourced from the ronin_puppet
+   commit range and the gw / OS-level package versions surfaced during
+   phase 2).
+3. A link to the merged fxci-config PR plus a list of
+   release-notes URLs — one per rebuilt config — pointing at
+   `worker-images/main`'s SBOM markdown files.
+
+Don't post until the PR has merged; the SBOM URLs resolve to
+`/blob/main/...` and 404 until the merge commit lands.
+
+The full template (Windows + Linux variants) and the friendly-name
+mapping the team uses live in `references/slack-changelog.md`. Trim the
+URL list to only the configs that were actually rebuilt — a hotfix
+should not include lines for configs that didn't move.
+
 ## What this skill does NOT do
 
 - It does not push commits to ronin_puppet or worker-images. Image content
@@ -241,3 +263,6 @@ Reference templates and worked examples: `references/pr-templates.md`.
   legacy `ronin_*` naming for Windows.
 - `references/pr-templates.md` — copy-paste PR titles, branch names, and
   body skeletons for Windows and Linux rollouts.
+- `references/slack-changelog.md` — post-rollout Slack changelog
+  template plus the friendly-name → worker-images-config mapping used
+  in the per-image SBOM link list.
