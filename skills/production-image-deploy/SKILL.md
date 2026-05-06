@@ -1,12 +1,13 @@
 ---
 name: production-image-deploy
 description: |
-  Deploy a Firefox CI worker image end-to-end: alpha-validate via try
-  push, trigger the production worker-images build, verify what was
-  published, bump `worker-images.yml` in fxci-config, post the Slack
-  changelog, and run a post-merge worker-pool health check. Covers
-  Windows (Azure SIG, semver-versioned) and Linux (GCP, date-stamped
-  image names).
+  Deploy a Firefox CI worker image end-to-end: trigger the production
+  worker-images build, verify what was published, bump
+  `worker-images.yml` in fxci-config, gate the rollout on Taskcluster
+  integration tests (via the `/taskcluster integration` PR comment or
+  optionally an alpha-pool try push), post the Slack changelog, and run
+  a post-merge worker-pool health check. Covers Windows (Azure SIG,
+  semver-versioned) and Linux (GCP, date-stamped image names).
 
   Use this whenever the user wants to roll out a new ronin_puppet commit
   to worker images, ship a new generic-worker / Taskcluster cloud
@@ -15,14 +16,15 @@ description: |
   include "deploy production image", "roll out a new image version",
   "bump windows images", "promote ubuntu 2404 image", "update
   worker-images.yml in fxci-config", "ship new ronin_puppet commit",
-  "validate a new image via try push", "check that the new image is
-  rolling out", and "follow up on PR #<n>" when the referenced PR is an
-  image-version bump.
+  "trigger integration tests on the fxci-config PR", "validate a new
+  image", "check that the new image is rolling out", and "follow up on
+  PR #<n>" when the referenced PR is an image-version bump.
 
   Reach for this skill before doing the work by hand — it captures the
   release-engineering conventions (validation gate, PR title format,
-  body skeleton, branch naming, Slack changelog format, post-merge
-  health checks, what NOT to include) the team has converged on.
+  body skeleton, branch naming, `/taskcluster integration` comment
+  trigger, Slack changelog format, post-merge health checks, what NOT
+  to include) the team has converged on.
 ---
 
 # Production image deploy
@@ -40,46 +42,74 @@ The three repos involved:
 | `mozilla-platform-ops/worker-images` | Packer + Action workflows that build images. Per-config YAML files (`config/<name>.yaml`) carry the target version + `deploymentId`. SBOMs land in `sboms/`. |
 | `mozilla-releng/fxci-config` | Worker-pool definitions. `worker-images.yml` is the "what gets booted in CI" map; bumping it is what actually puts a new image into rotation. |
 
-Treat the phases below as a checklist. Phase 0 (alpha validation) is
-strongly preferred but optional; phase 5 (post-merge health) should
-always happen. Skip phase 1 if the user has already triggered the
-production build — verify what's published before editing fxci-config.
+Treat the phases below as a checklist. The validation gate (Tier 1
+must be green) is the same regardless of which validation path is used
+— see "Pre-flight validation" immediately below for the two paths and
+when to pick which. Phase 5 (post-merge health) should always happen.
+Skip phase 1 if the user has already triggered the production build —
+verify what's published before editing fxci-config.
 
-## Phase 0 — Alpha validation (try push)
+## Pre-flight validation: two paths
 
-Before promoting a new ronin_puppet commit (or other image-content
-change) to production galleries, validate it on the alpha pool. The
-team rule: **Tier 1 must be green on the alpha image before phase 1
-fires**. Skip this phase only when the user has explicitly already
-validated, or for trivial bumps (e.g., re-shipping the same
-deploymentId at a higher patch version with no provisioning changes).
+The team validates image bumps in **two** different places, and the
+right one depends on what you're iterating on. Both produce a
+Tier-1-must-be-green gate before the bump can merge.
 
-1. Build the alpha image with the candidate `deploymentId` /
-   `image_version`. Same workflows as production, just with the
-   `*-alpha` config name:
+### Path A (standard) — `/taskcluster integration` on the fxci-config PR
+
+Once the bump PR is open (phase 3), post the literal comment
+`/taskcluster integration` on it. fxci-config's `.taskcluster.yml`
+listens for `github-issue-comment` events whose body starts with
+`/taskcluster ` and dispatches a decision task with the rest of the
+comment as the `target_tasks_method` (so `integration` runs every
+task in the PR's task graph tagged with the `integration` attribute,
+defined by `taskcluster/fxci_config_taskgraph/target_tasks.py`).
+
+That decision task schedules os-integration tasks against the **pool
+and image config defined by the PR's diff** — so it exercises the
+exact change under review without needing an alpha pool or a try
+push. Results report back to the PR via `checks-v1`.
+
+This is the right path for almost every fxci-config image bump. The
+hookup is in phase 3 below — see "Trigger integration tests on the
+PR".
+
+### Path B (fallback) — alpha pool + `os-integrations` try push
+
+Use this when path A doesn't fit:
+
+- You're iterating on **ronin_puppet** content and don't yet have a
+  fxci-config PR (e.g. trying to find the right gw version).
+- You need test coverage the integration suite doesn't carry — perf
+  jobs, browsertime, talos, anything the suite filters out.
+- You need to validate an image variant before opening the fxci-config
+  PR for political/reviewer reasons.
+
+The flow:
+
+1. Build the alpha image at the candidate ronin_puppet
+   `deploymentId` / `image_version`:
    ```bash
    gh workflow run "FXCI - Azure" \
      --repo mozilla-platform-ops/worker-images \
      -f config=win11-64-24h2-alpha
    ```
-2. Wait for the build, then verify it published — same phase-2
-   procedure (Packer log, SBOM, gallery).
-3. Trigger a try push against the matching alpha pool. The
-   `os-integrations` skill owns this — it carries the canonical mach
-   try flag bundles for win10, win11-24h2, win11-25h2, ARM64, ubuntu
-   2404, etc. Use the autoland decision-task baseline (per the user's
-   `~/.claude/CLAUDE.md`), not mozilla-central.
-4. Watch results in Treeherder. The `treeherder` skill can summarize
-   tier classification and pull live job statuses.
-5. Gate: only proceed to phase 1 if Tier 1 is green. Treat known
-   intermittents the same way you would on a normal push (acknowledge
-   and note them in the rollout PR), but new Tier-1 reds are a stop
-   sign — fix in ronin_puppet (or revert) and rebuild the alpha image
-   before continuing.
+2. Verify it published (same as phase 2 below — Packer log, SBOM,
+   gallery).
+3. Hand off to the `os-integrations` skill to trigger the mach try
+   push against the matching alpha pool. It carries the canonical try
+   flag bundles for win10, win11-24h2, win11-25h2, ARM64, ubuntu 2404,
+   etc., and knows to use the autoland decision-task baseline (per
+   `~/.claude/CLAUDE.md`).
+4. Watch results in Treeherder via the `treeherder` skill.
+5. Gate: don't promote to phase 1 (production build) until Tier 1 is
+   green. New Tier-1 reds → fix in ronin_puppet and rebuild the alpha.
+   If Tier 2/3 surfaces non-blocking follow-ups, file a RELOPS ticket
+   and reference it in the phase-3 PR's `## Related` section.
 
-If Tier 2/3 reveals novel breakage that isn't blocking the rollout but
-needs follow-up, file a RELOPS ticket and reference it in the phase-3
-PR's `## Related` section.
+You usually want path A even if you also did path B — having
+integration checks on the PR itself is the auditable artifact
+reviewers expect to see.
 
 ## Phase 1 — Trigger the build
 
@@ -256,11 +286,36 @@ read the diff as a new regression.
 
 Reference templates and worked examples: `references/pr-templates.md`.
 
+### Trigger integration tests on the PR
+
+Immediately after opening the PR, post the comment `/taskcluster
+integration` (no extra text). That dispatches a Taskcluster decision
+task that schedules every `integration`-tagged task against the pool
+and image config defined by the PR's diff. Results land back on the
+PR as `checks-v1` entries.
+
+```bash
+gh pr comment <PR_NUMBER> --repo mozilla-releng/fxci-config \
+  --body '/taskcluster integration'
+```
+
+The comment author must be a collaborator (`policy.allowComments:
+collaborators` in `.taskcluster.yml`). If the comment doesn't trigger
+anything within a minute or two, double-check spelling — the decision
+task only fires for `/taskcluster <method>` exact-prefix matches, and
+the only valid method for image-bump PRs is `integration`.
+
+Treat the resulting checks the same way you'd treat alpha-pool Tier-1:
+new reds are a stop sign, intermittents get noted but not blocked on.
+
 ### Reviewers and merge
 
 - Default reviewer pool: whoever last reviewed an image-version bump in
   fxci-config (commonly `rcurranmoz`). Ask if unsure.
-- Auto-merge (squash) is the team default for these PRs once green.
+- Auto-merge (squash) is the team default for these PRs once green —
+  but don't enable auto-merge before the integration checks have
+  actually started reporting; otherwise the PR can squash-merge on the
+  reviewer's approval before the integration suite even runs.
 
 ## Phase 4 — Announce in Slack
 
