@@ -1,23 +1,28 @@
 ---
 name: production-image-deploy
 description: |
-  Deploy a Firefox CI worker image end-to-end: trigger the worker-images
-  GitHub Actions build, verify what was published, then bump
-  `worker-images.yml` in fxci-config and open the rollout PR. Covers Windows
-  (Azure SIG, semver-versioned) and Linux (GCP, date-stamped image names).
+  Deploy a Firefox CI worker image end-to-end: alpha-validate via try
+  push, trigger the production worker-images build, verify what was
+  published, bump `worker-images.yml` in fxci-config, post the Slack
+  changelog, and run a post-merge worker-pool health check. Covers
+  Windows (Azure SIG, semver-versioned) and Linux (GCP, date-stamped
+  image names).
 
-  Use this whenever the user wants to roll out a new ronin_puppet commit to
-  worker images, ship a new generic-worker / Taskcluster cloud worker bump,
-  promote alpha images to prod, or "do another version bump like PR
-  mozilla-releng/fxci-config#955 / #968". Trigger phrases include "deploy
-  production image", "roll out a new image version", "bump windows
-  images", "promote ubuntu 2404 image", "update worker-images.yml in
-  fxci-config", "ship new ronin_puppet commit", and "follow up on PR
-  #<n>" when the referenced PR is an image-version bump.
+  Use this whenever the user wants to roll out a new ronin_puppet commit
+  to worker images, ship a new generic-worker / Taskcluster cloud
+  worker bump, promote alpha images to prod, or "do another version bump
+  like PR mozilla-releng/fxci-config#955 / #968". Trigger phrases
+  include "deploy production image", "roll out a new image version",
+  "bump windows images", "promote ubuntu 2404 image", "update
+  worker-images.yml in fxci-config", "ship new ronin_puppet commit",
+  "validate a new image via try push", "check that the new image is
+  rolling out", and "follow up on PR #<n>" when the referenced PR is an
+  image-version bump.
 
   Reach for this skill before doing the work by hand — it captures the
-  release-engineering conventions (PR title format, body skeleton, branch
-  naming, what NOT to include) the team has converged on.
+  release-engineering conventions (validation gate, PR title format,
+  body skeleton, branch naming, Slack changelog format, post-merge
+  health checks, what NOT to include) the team has converged on.
 ---
 
 # Production image deploy
@@ -35,9 +40,46 @@ The three repos involved:
 | `mozilla-platform-ops/worker-images` | Packer + Action workflows that build images. Per-config YAML files (`config/<name>.yaml`) carry the target version + `deploymentId`. SBOMs land in `sboms/`. |
 | `mozilla-releng/fxci-config` | Worker-pool definitions. `worker-images.yml` is the "what gets booted in CI" map; bumping it is what actually puts a new image into rotation. |
 
-Treat the three phases below as a checklist. Skip phase 1 if the user has
-already triggered the build — verify what's published before editing
-fxci-config.
+Treat the phases below as a checklist. Phase 0 (alpha validation) is
+strongly preferred but optional; phase 5 (post-merge health) should
+always happen. Skip phase 1 if the user has already triggered the
+production build — verify what's published before editing fxci-config.
+
+## Phase 0 — Alpha validation (try push)
+
+Before promoting a new ronin_puppet commit (or other image-content
+change) to production galleries, validate it on the alpha pool. The
+team rule: **Tier 1 must be green on the alpha image before phase 1
+fires**. Skip this phase only when the user has explicitly already
+validated, or for trivial bumps (e.g., re-shipping the same
+deploymentId at a higher patch version with no provisioning changes).
+
+1. Build the alpha image with the candidate `deploymentId` /
+   `image_version`. Same workflows as production, just with the
+   `*-alpha` config name:
+   ```bash
+   gh workflow run "FXCI - Azure" \
+     --repo mozilla-platform-ops/worker-images \
+     -f config=win11-64-24h2-alpha
+   ```
+2. Wait for the build, then verify it published — same phase-2
+   procedure (Packer log, SBOM, gallery).
+3. Trigger a try push against the matching alpha pool. The
+   `os-integrations` skill owns this — it carries the canonical mach
+   try flag bundles for win10, win11-24h2, win11-25h2, ARM64, ubuntu
+   2404, etc. Use the autoland decision-task baseline (per the user's
+   `~/.claude/CLAUDE.md`), not mozilla-central.
+4. Watch results in Treeherder. The `treeherder` skill can summarize
+   tier classification and pull live job statuses.
+5. Gate: only proceed to phase 1 if Tier 1 is green. Treat known
+   intermittents the same way you would on a normal push (acknowledge
+   and note them in the rollout PR), but new Tier-1 reds are a stop
+   sign — fix in ronin_puppet (or revert) and rebuild the alpha image
+   before continuing.
+
+If Tier 2/3 reveals novel breakage that isn't blocking the rollout but
+needs follow-up, file a RELOPS ticket and reference it in the phase-3
+PR's `## Related` section.
 
 ## Phase 1 — Trigger the build
 
@@ -242,13 +284,41 @@ mapping the team uses live in `references/slack-changelog.md`. Trim the
 URL list to only the configs that were actually rebuilt — a hotfix
 should not include lines for configs that didn't move.
 
+## Phase 5 — Post-merge worker-pool health check
+
+Once the fxci-config PR merges, fxci-config's deploy CI propagates the
+new `worker-images.yml` to worker-manager. Newly provisioned workers
+in the affected pools should start booting from the new image. Confirm
+that's actually happening — don't assume.
+
+Wait 15–30 minutes after merge, then for each bumped pool:
+
+1. **Confirm the new `deploymentId` (Windows) or dated image name
+   (Linux) is showing up on freshly-provisioned workers**, using
+   `tc-logview`'s `worker-running` events. Old IDs should fade as old
+   workers terminate; new IDs should be visible within ~30 minutes.
+2. **Sanity-check pending counts and pool capacity** via
+   `taskcluster api`. A short-lived spike during the rollover is
+   normal; a sustained climb is not.
+3. **Watch `worker-error` for new failure modes.** A spike in sysprep
+   or generic-worker-startup errors right after merge usually means a
+   bad image — be ready to roll back.
+4. If anything looks off, hand off to the `queue-diagnosis` skill for
+   a structured supply/demand split before reacting.
+
+Concrete `tc-logview` queries, escalation thresholds, and the rollback
+recipe live in `references/post-merge-health.md`.
+
 ## What this skill does NOT do
 
 - It does not push commits to ronin_puppet or worker-images. Image content
   changes go through their own review.
-- It does not run image-validation try-pushes. That's the
-  `os-integrations` skill — invoke it separately if the user wants
-  pre-flight test coverage before the bump lands.
+- It delegates the actual try push and tier evaluation to the
+  `os-integrations` and `treeherder` skills (phase 0). It tells you when
+  to invoke them, not how to drive them.
+- It delegates queue-backlog triage to the `queue-diagnosis` skill
+  (phase 5). If post-merge pending grows, switch over rather than
+  duplicating that analysis here.
 - It does not bump community-tc-config. That repo has its own image
   conventions; ask the user before extending there.
 
@@ -266,3 +336,6 @@ should not include lines for configs that didn't move.
 - `references/slack-changelog.md` — post-rollout Slack changelog
   template plus the friendly-name → worker-images-config mapping used
   in the per-image SBOM link list.
+- `references/post-merge-health.md` — phase-5 `tc-logview` and
+  Taskcluster API queries, escalation thresholds, and rollback recipe
+  for when the new image misbehaves.
