@@ -42,20 +42,50 @@ The three repos involved:
 | `mozilla-platform-ops/worker-images` | Packer + Action workflows that build images. Per-config YAML files (`config/<name>.yaml`) carry the target version + `deploymentId`. SBOMs land in `sboms/`. |
 | `mozilla-releng/fxci-config` | Worker-pool definitions. `worker-images.yml` is the "what gets booted in CI" map; bumping it is what actually puts a new image into rotation. |
 
-Treat the phases below as a checklist. The validation gate (Tier 1
-must be green) is the same regardless of which validation path is used
-— see "Pre-flight validation" immediately below for the two paths and
-when to pick which. Phase 5 (post-merge health) should always happen.
-Skip phase 1 if the user has already triggered the production build —
-verify what's published before editing fxci-config.
+Treat the phases below as a checklist. Validation runs at three
+different surfaces (described next), and which ones apply depends on
+the cloud and the configs being rebuilt. Phase 5 (post-merge health)
+should always happen. Skip phase 1 if the user has already triggered
+the production build — verify what's published before editing
+fxci-config.
 
-## Pre-flight validation: two paths
+## Validation surfaces
 
-The team validates image bumps in **two** different places, and the
-right one depends on what you're iterating on. Both produce a
-Tier-1-must-be-green gate before the bump can merge.
+Three places where integration tests can run against a candidate
+image. They overlap intentionally: each catches things the others
+miss.
 
-### Path A (standard) — `/taskcluster integration` on the fxci-config PR
+### Surface 1 — In-build OS integration tests (automatic, only some workflows)
+
+The Azure non-trusted build workflows automatically chain
+`.github/workflows/os-integration.yml` after the `packer` job. The
+chained job resolves the just-published shared image from the
+config's `sharedimage.image_name`, then submits Taskcluster
+os-integration tasks against that image (via a hook, using
+`TASKCLUSTER_OS_INT_CLIENT_ID`). Results show up as `OS Integration
+Tests - <config>` jobs inside the same Action run.
+
+Workflows that auto-trigger this:
+
+- `FXCI - Azure` (`sig-nontrusted.yml`)
+- `FXCI - Azure Prod Parallel Images` (`sig-FXCI-parallel-build.yml`)
+- `FXCI - Azure Alpha Parallel Images` (`sig-FXCI-nontrusted-parallel-build-alpha.yml`)
+
+Configs the auto-chain skips (so they get **no** integration coverage
+from surface 1):
+
+- All `win2022*` configs (`if: !startsWith(config, 'win2022')` in
+  `sig-nontrusted.yml`; same filter pattern in the parallel
+  workflows).
+- Alpha-parallel only: `win11-a64-*-builder` configs (filtered out of
+  `os_integration_matrix`).
+- All `FXCI - Azure - Trusted` builds (`sig-trusted.yml` does not
+  invoke `os-integration.yml`).
+- All Linux GCP workflows (`gcp-*.yml` do not invoke it).
+
+For configs the workflow skips, surface 2 carries the load.
+
+### Surface 2 — `/taskcluster integration` on the fxci-config PR
 
 Once the bump PR is open (phase 3), post the literal comment
 `/taskcluster integration` on it. fxci-config's `.taskcluster.yml`
@@ -65,51 +95,33 @@ comment as the `target_tasks_method` (so `integration` runs every
 task in the PR's task graph tagged with the `integration` attribute,
 defined by `taskcluster/fxci_config_taskgraph/target_tasks.py`).
 
-That decision task schedules os-integration tasks against the **pool
-and image config defined by the PR's diff** — so it exercises the
-exact change under review without needing an alpha pool or a try
-push. Results report back to the PR via `checks-v1`.
+The decision task schedules os-integration tasks against **the pool
+and image binding defined by the PR's diff** — exercising the new
+image as it would land in production, including any worker-pool
+config interactions surface 1 can't see. Results report back to the
+PR via `checks-v1`.
 
-This is the right path for almost every fxci-config image bump. The
-hookup is in phase 3 below — see "Trigger integration tests on the
-PR".
+The hookup is in phase 3 below — see "Trigger integration tests on
+the PR".
 
-### Path B (fallback) — alpha pool + `os-integrations` try push
+### Surface 3 — `os-integrations` mach try push (fallback)
 
-Use this when path A doesn't fit:
+Use this when surfaces 1 and 2 don't cover what you need:
 
-- You're iterating on **ronin_puppet** content and don't yet have a
-  fxci-config PR (e.g. trying to find the right gw version).
 - You need test coverage the integration suite doesn't carry — perf
   jobs, browsertime, talos, anything the suite filters out.
-- You need to validate an image variant before opening the fxci-config
-  PR for political/reviewer reasons.
+- You're iterating on a ronin_puppet candidate and want broader
+  coverage than the integration hook gives you.
+- You're trying to reproduce an end-user failure on a specific test
+  platform combo against a candidate image.
 
-The flow:
-
-1. Build the alpha image at the candidate ronin_puppet
-   `deploymentId` / `image_version`:
-   ```bash
-   gh workflow run "FXCI - Azure" \
-     --repo mozilla-platform-ops/worker-images \
-     -f config=win11-64-24h2-alpha
-   ```
-2. Verify it published (same as phase 2 below — Packer log, SBOM,
-   gallery).
-3. Hand off to the `os-integrations` skill to trigger the mach try
-   push against the matching alpha pool. It carries the canonical try
-   flag bundles for win10, win11-24h2, win11-25h2, ARM64, ubuntu 2404,
-   etc., and knows to use the autoland decision-task baseline (per
-   `~/.claude/CLAUDE.md`).
-4. Watch results in Treeherder via the `treeherder` skill.
-5. Gate: don't promote to phase 1 (production build) until Tier 1 is
-   green. New Tier-1 reds → fix in ronin_puppet and rebuild the alpha.
-   If Tier 2/3 surfaces non-blocking follow-ups, file a RELOPS ticket
-   and reference it in the phase-3 PR's `## Related` section.
-
-You usually want path A even if you also did path B — having
-integration checks on the PR itself is the auditable artifact
-reviewers expect to see.
+Hand off to the `os-integrations` skill — it carries the canonical
+mach try flag bundles for win10, win11-24h2, win11-25h2, ARM64,
+ubuntu 2404, etc., and knows to use the autoland decision-task
+baseline (per `~/.claude/CLAUDE.md`). Watch results in Treeherder via
+the `treeherder` skill. New Tier-1 reds → fix in ronin_puppet and
+rebuild before continuing; non-blocking follow-ups → file a RELOPS
+ticket and reference it in the phase-3 PR's `## Related` section.
 
 ## Phase 1 — Trigger the build
 
@@ -190,8 +202,9 @@ gh run list --repo mozilla-platform-ops/worker-images \
   --json databaseId,url,status,createdAt
 ```
 
-Don't poll inside a tight loop — Windows builds take 45–90 minutes per
-config, Linux around 20–40 minutes.
+Builds take a while (look at recent runs of the same workflow to set
+expectations rather than guessing) — don't poll in a tight loop; just
+hand off the run URL and come back when it finishes.
 
 ## Phase 2 — Verify what was published
 
@@ -207,6 +220,10 @@ For each rebuilt config:
    gh run view <RUN_ID> --repo mozilla-platform-ops/worker-images \
      --json jobs --jq '.jobs[] | "\(.conclusion) \(.name)"'
    ```
+   For workflows that chain os-integration (see surface 1 above), an
+   `OS Integration Tests - <config>` job will also appear here. Treat
+   its conclusion as the in-build validation signal; if it failed,
+   investigate before continuing to phase 3.
 2. For Windows, search the per-config build log for the published version
    and gallery URL — Packer prints them at the end of the `Run Packer`
    step:
@@ -310,8 +327,9 @@ new reds are a stop sign, intermittents get noted but not blocked on.
 
 ### Reviewers and merge
 
-- Default reviewer pool: whoever last reviewed an image-version bump in
-  fxci-config (commonly `rcurranmoz`). Ask if unsure.
+- Default reviewer pool: check who reviewed the last few image-version
+  bump PRs in fxci-config (e.g. PRs #955, #968, #982) and request the
+  same set. Don't hardcode names — the rotation changes.
 - Auto-merge (squash) is the team default for these PRs once green —
   but don't enable auto-merge before the integration checks have
   actually started reporting; otherwise the PR can squash-merge on the
@@ -368,9 +386,9 @@ recipe live in `references/post-merge-health.md`.
 
 - It does not push commits to ronin_puppet or worker-images. Image content
   changes go through their own review.
-- It delegates the actual try push and tier evaluation to the
-  `os-integrations` and `treeherder` skills (phase 0). It tells you when
-  to invoke them, not how to drive them.
+- It delegates mach try pushes and tier evaluation to the
+  `os-integrations` and `treeherder` skills (validation surface 3). It
+  tells you when to invoke them, not how to drive them.
 - It delegates queue-backlog triage to the `queue-diagnosis` skill
   (phase 5). If post-merge pending grows, switch over rather than
   duplicating that analysis here.

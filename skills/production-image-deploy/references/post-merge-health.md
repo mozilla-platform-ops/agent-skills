@@ -11,58 +11,86 @@ re-evaluates pool config on its own cadence and existing VMs continue
 running until they terminate normally; the rollout is gradual, not
 instantaneous.
 
+## Identifying the pools to check
+
+`worker-images.yml` bindings flow into `worker-pools.yml` aliases.
+Before you start, list the pool IDs that consume each fxci-config
+alias you bumped — `worker-pools.yml` is where pool IDs (in
+`<provisioner>/<workerType>` form like `gecko-t/win11-64-24h2`) are
+defined. Pull them out with:
+
+```bash
+cd ~/github_moz/fxci-config
+grep -nE "pool_id|workerType" worker-pools.yml | grep -B1 <alias>
+```
+
+Phase 3's fxci-config diff is the authoritative list of which aliases
+moved.
+
 ## Confirming the new deploymentId is in use (Windows)
 
-`tc-logview` is the fastest way to see which `deploymentId` recently-
-provisioned workers carry. Replace the workerPoolId for whichever pool
-you care about:
+`tc-logview`'s typed fields for `worker-running` are
+`providerId, registrationDuration, workerId, workerPoolId` (run
+`tc-logview list --service worker-manager` to confirm). The
+ronin_puppet `deploymentId` is set as a VM tag on the Azure side
+during build (it lives under `vm.tags` in the worker-images config),
+so to surface it from a `worker-running` event you have to read the
+raw payload — the tag isn't projected as a typed field.
+
+Run a single query first to see exactly where `deploymentId` lives in
+the payload your environment returns; then build the aggregation:
+
+```bash
+# 1. Inspect a single event to find the actual jq path
+tc-logview query -e fx-ci --type worker-running \
+  --where 'workerPoolId="<your-pool>"' \
+  --since 1h --raw --limit 1 \
+  | jq '.' | grep -i deploymentid
+```
+
+Once you have the path (likely under `providerMetadata` or the
+provider's `tags` block, but verify), aggregate the recently-launched
+workers by it:
 
 ```bash
 tc-logview query -e fx-ci --type worker-running \
-  --where 'workerPoolId="gecko-t/win11-64-24h2"' \
+  --where 'workerPoolId="<your-pool>"' \
   --since 30m --json --limit 200 \
-  | jq -r '.providerMetadata.tags.deploymentId' \
+  | jq -r '<the path you confirmed>' \
   | sort | uniq -c
 ```
 
-You want to see the new `deploymentId` appearing in the count and old
-IDs decreasing over time. If only old IDs show up after 30+ minutes,
+You want the new `deploymentId` appearing in the count and old IDs
+decreasing over time. If only old IDs show up after 30+ minutes,
 something is wrong with the rollout (see "Escalation" below).
 
-For a broader sweep across all the bumped pools, loop the query:
+If reading the raw payload is too noisy, an easier substring check
+works for spot-confirming a specific deploymentId:
 
 ```bash
-for pool in gecko-t/win11-64-24h2 gecko-t/win11-64-25h2 \
-            gecko-t/win11-a64-24h2-tester gecko-t/win11-a64-25h2-tester \
-            gecko-1-b-win2022 gecko-3-b-win2022 \
-            gecko-1-b-win11-a64-24h2 gecko-3-b-win11-a64-24h2; do
-  echo "== $pool =="
-  tc-logview query -e fx-ci --type worker-running \
-    --where "workerPoolId=\"$pool\"" --since 30m --json --limit 100 \
-    | jq -r '.providerMetadata.tags.deploymentId' | sort | uniq -c
-done
+tc-logview query -e fx-ci --service worker-manager \
+  --filter '"<new-deploymentId>"' \
+  --where 'workerPoolId="<your-pool>"' \
+  --since 30m --limit 50
 ```
 
-(Adjust the pool list to match what was actually bumped — phase 3's
-fxci-config diff is the source of truth.)
+Loop across every pool that was bumped — the pool list is whatever
+phase 3's fxci-config diff actually touched.
 
 ## Confirming the new image name (Linux)
 
-Linux pools don't use ronin_puppet `deploymentId`; the equivalent signal
-is the GCE image name. Check `worker-running` events for
-`providerMetadata.image` (or the equivalent field in the GCE provider's
-metadata):
+Linux pools don't use ronin_puppet `deploymentId`; the equivalent
+signal is the GCE image name. Same approach as Windows: dump one raw
+`worker-running` event for the pool, find where the image reference
+lives, then aggregate. Substring-filter the dated image name as a
+faster alternative:
 
 ```bash
-tc-logview query -e fx-ci --type worker-running \
-  --where 'workerPoolId="gecko-t/t-linux-2404-wayland"' \
-  --since 30m --json --limit 100 \
-  | jq -r '.providerMetadata.image // .providerMetadata.sourceImage // empty' \
-  | sort | uniq -c
+tc-logview query -e fx-ci --service worker-manager \
+  --filter '"gw-fxci-gcp-l1-2404-amd64-headless-googlecompute-<YYYY-MM-DD>"' \
+  --where 'workerPoolId="<your-pool>"' \
+  --since 30m --limit 50
 ```
-
-The dated image name (e.g. `gw-fxci-gcp-l1-2404-amd64-headless-googlecompute-2026-05-04`)
-should appear; older dates should fade.
 
 ## Pending counts and pool capacity
 
@@ -70,28 +98,27 @@ Pending should not grow unboundedly post-merge. A short-lived spike is
 normal as old workers drain and new ones boot, but a sustained climb
 means demand is outpacing supply or new workers are failing to start.
 
-```bash
-# pool config + current capacity
-taskcluster api workerManager workerPool gecko-t/win11-64-24h2
+Run `taskcluster api workerManager --help` and `taskcluster api queue
+--help` to discover the exact subcommand names in your installed
+taskcluster CLI before scripting; the CLI's command surface evolves
+and the right subcommand for "pool config" or "pending tasks" varies
+by version.
 
-# pending and claimed task counts
-taskcluster api queue pendingTasks gecko-t win11-64-24h2
-taskcluster api queue claimedTasks gecko-t win11-64-24h2
-```
-
-Quick visual via the Taskcluster UI:
-`https://firefox-ci-tc.services.mozilla.com/provisioners/gecko-t/worker-types/<pool>`.
+The fastest visual is the Taskcluster UI's worker-type page:
+`https://firefox-ci-tc.services.mozilla.com/provisioners/<provisioner>/worker-types/<workerType>`
+— substitute the provisioner and workerType from the pool ID.
 
 ## Watching for new failure modes
 
-A bad image often shows up first as a spike in `worker-error` events
-with new sysprep / provisioning / TaskCluster-startup failures:
+A bad image often shows up first as a spike in `worker-error` events.
+The typed fields for `worker-error` are `description, errorId, kind,
+title, workerPoolId`:
 
 ```bash
 tc-logview query -e fx-ci --type worker-error \
-  --where 'workerPoolId="gecko-t/win11-64-24h2"' \
+  --where 'workerPoolId="<your-pool>"' \
   --since 2h --json --limit 200 \
-  | jq -r '.message // .reason // .errorMessage // empty' \
+  | jq -r '.title // .description // empty' \
   | sort | uniq -c | sort -rn | head -20
 ```
 
