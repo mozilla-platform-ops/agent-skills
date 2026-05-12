@@ -20,6 +20,7 @@ npx skills add mozilla-platform-ops/agent-skills/<skill-name>
 
 | Skill | Description |
 |-------|-------------|
+| [fxci-task-cost-attribution](skills/fxci-task-cost-attribution/) | Compute per-task or per-push cost for FXCI tasks across both clouds (GCP + Azure) by joining BigQuery billing exports against `fxci_derived.task_runs_v1`. Implements the RELOPS-2330 reference query, including the cross-account auth split and the local DuckDB join required while the production pipeline is pending. Runs on macOS and Windows. |
 | [queue-diagnosis](skills/queue-diagnosis/) | Diagnose large Taskcluster worker-pool queues by combining live Taskcluster pool state with Redash/BigQuery demand analysis. Produces a supply-side, demand-side, mixed, or inconclusive verdict with supporting evidence. |
 | [redash](skills/redash/) | Query Mozilla's Redash (sql.telemetry.mozilla.org) for Firefox telemetry and FXCI task data. Covers OS version distribution, DAU/MAU, architecture breakdown, worker-pool queue time, and task-level CI analysis. Requires only a Redash API key. |
 
