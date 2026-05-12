@@ -1,5 +1,5 @@
 ---
-name: tc-worker-manager-logs
+name: taskcluster-worker-lifecycle-logs
 description: >
   Use when investigating Taskcluster worker-manager/worker-scanner
   provisioning, registration, Azure scanner, lifecycle, or VM-trace issues
