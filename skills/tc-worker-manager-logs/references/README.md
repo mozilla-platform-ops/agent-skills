@@ -1,12 +1,39 @@
 # Taskcluster Worker-Manager Logs
 
-Query Taskcluster's worker-manager service logs from GCP Cloud Logging.
+Use `tc-logview` to query Taskcluster's worker-manager service logs. The tool
+wraps GCP Cloud Logging with Taskcluster environment config, typed log
+definitions, field shorthands, JSONL output, and cached result paging.
 
-## Prerequisites
+## Install And Setup
 
-1. **gcloud CLI** authenticated (`gcloud auth login`)
-2. **Access** to the `moz-fx-webservices-high-prod` GCP project (Logging Viewer role)
-3. **jq** for JSON processing
+```bash
+go install github.com/taskcluster/tc-logview@latest
+tc-logview config init
+# Put the GCP service-account key at the key_path in the generated config.
+tc-logview sync -e fx-ci
+```
+
+The working local config used in prior investigations was:
+
+```yaml
+environments:
+  fx-ci:
+    project_id: "moz-fx-webservices-high-prod"
+    cluster: "webservices-high-prod"
+    root_url: "https://firefox-ci-tc.services.mozilla.com"
+    cloudsql_instance: "taskcluster-prod-20260409-1"
+    key_path: "~/.config/gcloud/application_default_credentials.json"
+  community-tc:
+    project_id: "moz-fx-webservices-high-prod"
+    cluster: "webservices-high-prod"
+    root_url: "https://community-tc.services.mozilla.com"
+    cloudsql_instance: "taskcluster-community-20260317-1"
+    key_path: "~/.config/gcloud/application_default_credentials.json"
+```
+
+Pass `-e fx-ci` explicitly in examples. Relying on
+`TASKCLUSTER_ROOT_URL` auto-detection has failed when the URL contained a
+trailing slash.
 
 ## Architecture
 
@@ -14,26 +41,27 @@ Taskcluster runs as a Helm deployment in GKE:
 
 | Property | Value |
 |----------|-------|
-| GCP project | `moz-fx-webservices-high-prod` |
+| GCP project in tc-logview config | `moz-fx-webservices-high-prod` |
 | GKE cluster | `webservices-high-prod` |
 | Region | `us-west1` |
-| Namespace | `taskcluster-prod` |
+| Firefox CI namespace | `taskcluster-prod` |
+| Community TC namespace | `taskcluster-communitytc` |
 | Deployment prefix | `taskcluster-v1-deploy-worker-manager-*` |
 
-The secrets and database live in a separate project (`moz-fx-taskcluster-prod`),
-but all application logs flow through the webservices GKE cluster.
+The secrets and database live in Taskcluster-specific projects, but the service
+logs are queried through the webservices GKE environment configured above.
 
 ## Source Code
 
 Log types and fields are defined in the Taskcluster monorepo:
 
 | File | What it defines |
-|------|----------------|
+|------|-----------------|
 | `services/worker-manager/src/monitor.js` | Worker-manager-specific log types and fields |
-| `services/worker-manager/src/provisioner.js` | Provisioning loop (emits `simple-estimate`, `worker-pool-provisioned`) |
-| `services/worker-manager/src/worker-scanner.js` | Scanner loop (emits `scan-seen`, `worker-running`, `worker-stopped`, etc.) |
-| `libraries/monitor/src/logger.js` | Mozlog envelope structure and built-in types |
-| `libraries/api/src/middleware/logging.js` | `monitor.apiMethod` type (shared across all services) |
+| `services/worker-manager/src/provisioner.js` | Provisioning loop (`simple-estimate`, `worker-pool-provisioned`) |
+| `services/worker-manager/src/worker-scanner.js` | Scanner loop (`scan-seen`, `worker-running`, `worker-stopped`, etc.) |
+| `libraries/monitor/src/logger.js` | Mozlog envelope structure and built-in monitor types |
+| `libraries/api/src/middleware/logging.js` | `monitor.apiMethod` type shared across services |
 
 Repo: https://github.com/taskcluster/taskcluster
 
@@ -45,42 +73,46 @@ different aspect of worker lifecycle management:
 | Container | Role |
 |-----------|------|
 | `worker-manager-web` | API server handling worker registration, should-terminate, list workers |
-| `worker-manager-provisioner` | Background loop that provisions new workers based on pending task demand |
-| `worker-manager-workerscanner` | Scans registered workers and marks stale ones for removal |
-| `worker-manager-workerscanner-azure` | Azure-specific worker scanner using Azure APIs to check VM state |
+| `worker-manager-provisioner` | Background loop that provisions new workers from pending task demand |
+| `worker-manager-workerscanner` | Scans registered workers and marks stale workers for removal |
+| `worker-manager-workerscanner-azure` | Azure-specific scanner using Azure APIs to check VM state |
 
-## Log Routing
+Use service and type filters instead of container-name filters whenever
+possible:
 
-Taskcluster runs in GKE in `moz-fx-webservices-high-prod`, but application logs
-are **excluded** from that project's `_Default` bucket by an exclusion filter
-(`exclude-gke-tenant-namespace`) and routed via a sink to a separate project:
+```bash
+tc-logview list --service worker-manager
+tc-logview query -e fx-ci --type scan-seen --since 30m --json
+tc-logview query -e fx-ci --type monitor.apiMethod --service worker-manager --since 1h --json
+```
+
+## Log Routing Context
+
+Historical direct Cloud Logging investigations had to account for GKE log
+routing and sink buckets. This skill should not expose that as the normal query
+path. Let `tc-logview` handle the environment and log filters.
+
+Useful routing facts when checking config or permissions:
 
 | Component | Location |
 |-----------|----------|
 | GKE cluster | `moz-fx-webservices-high-prod` |
-| App logs (sink destination) | `moz-fx-taskcluster-prod`, bucket `gke-taskcluster-prod-log-bucket` |
+| Firefox CI namespace | `taskcluster-prod` |
+| Community TC namespace | `taskcluster-communitytc` |
+| Older app-log sink destination | `moz-fx-taskcluster-prod`, bucket `gke-taskcluster-prod-log-bucket` |
 | Sink name | `gke-taskcluster-prod-sink` |
 | Sink filter | `resource.labels.namespace_name="taskcluster-prod"` |
 
-To query, you need Logging Viewer access on `moz-fx-taskcluster-prod`
-(specifically on the `gke-taskcluster-prod-log-bucket` log bucket).
+If `tc-logview` cannot return logs, first check `~/.config/tc-logview/config.yaml`,
+the `key_path`, and whether `tc-logview sync -e fx-ci` has populated the
+worker-manager references.
 
-## Related GCP Projects
+## Environments
 
-| Project ID | What lives there |
-|------------|-----------------|
-| `moz-fx-webservices-high-prod` | GKE cluster (app logs excluded from _Default, routed to sink) |
-| `moz-fx-taskcluster-prod` | App logs (sink bucket), CloudSQL database, Secret Manager secrets |
-| `moz-fx-taskcluster-prod-4b87` | Newer project for Taskcluster infrastructure (limited access) |
+| Environment | Root URL | Namespace |
+|-------------|----------|-----------|
+| `fx-ci` | `https://firefox-ci-tc.services.mozilla.com` | `taskcluster-prod` |
+| `community-tc` | `https://community-tc.services.mozilla.com` | `taskcluster-communitytc` |
 
-## Namespaces
-
-There are two Taskcluster namespaces in the cluster:
-
-| Namespace | Instance |
-|-----------|----------|
-| `taskcluster-prod` | Firefox CI (FXCI) production |
-| `taskcluster-communitytc` | Community Taskcluster instance |
-
-The skill defaults to `taskcluster-prod`. To query community TC, use a custom
-`--filter` with the namespace override.
+Use `-e community-tc` only when explicitly investigating Community
+Taskcluster. Firefox CI worker image and worker pool work should use `-e fx-ci`.
