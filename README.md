@@ -22,6 +22,7 @@ npx skills add mozilla-platform-ops/agent-skills/<skill-name>
 |-------|-------------|
 | [queue-diagnosis](skills/queue-diagnosis/) | Diagnose large Taskcluster worker-pool queues by combining live Taskcluster pool state with Redash/BigQuery demand analysis. Produces a supply-side, demand-side, mixed, or inconclusive verdict with supporting evidence. |
 | [redash](skills/redash/) | Query Mozilla's Redash (sql.telemetry.mozilla.org) for Firefox telemetry and FXCI task data. Covers OS version distribution, DAU/MAU, architecture breakdown, worker-pool queue time, and task-level CI analysis. Requires only a Redash API key. |
+| [worker-ready-tracing](skills/worker-ready-tracing/) | Trace Taskcluster Azure VM lifecycle timing from worker-manager provisioning through in-VM boot scripts to generic-worker readiness. |
 
 ## Adding New Skills
 
