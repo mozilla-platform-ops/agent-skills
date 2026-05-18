@@ -113,6 +113,18 @@ def list_all_workers(pool_id: str) -> dict:
     return {"workers": all_workers}
 
 
+# Maps each TC worker-manager Azure provider to the Azure subscription that
+# actually hosts its worker resource groups. Without this, `az vm list` runs
+# against whichever subscription the user happens to be `az account
+# set`-ed to, which silently returns ResourceGroupNotFound for any pool
+# on a different subscription — making the entire ghost check unusable
+# for cross-subscription investigations (e.g. Trusted FXCI level-3 pools).
+_AZURE_PROVIDER_SUBSCRIPTIONS = {
+    "azure2": "108d46d5-fe9b-4850-9a7d-8c914aa6c1f0",
+    "azure_trusted": "a30e97ab-734a-4f3b-a0e4-c51c0bff0701",
+}
+
+
 def check_azure_ghosts(
     pool_id: str, provider_id: str, workers: list[dict],
 ) -> dict | None:
@@ -131,15 +143,19 @@ def check_azure_ghosts(
             "skipped": "az CLI not found on PATH",
         }
     rg = f"rg-tc-{pool_id.replace('/', '-')}"
+    subscription = _AZURE_PROVIDER_SUBSCRIPTIONS.get(provider_id)
+    cmd = [
+        "az", "vm", "list",
+        "--resource-group", rg,
+        "--query",
+        "[].{name:name,time:timeCreated,location:location}",
+        "-o", "json",
+    ]
+    if subscription:
+        cmd += ["--subscription", subscription]
     try:
         result = subprocess.run(
-            [
-                "az", "vm", "list",
-                "--resource-group", rg,
-                "--query",
-                "[].{name:name,time:timeCreated,location:location}",
-                "-o", "json",
-            ],
+            cmd,
             capture_output=True,
             text=True,
             timeout=60,
@@ -152,6 +168,7 @@ def check_azure_ghosts(
                 f"az vm list failed: {result.stderr.strip()[:200]}"
             ),
             "resource_group": rg,
+            "subscription": subscription,
         }
 
     try:
@@ -169,6 +186,7 @@ def check_azure_ghosts(
 
     info = {
         "resource_group": rg,
+        "subscription": subscription,
         "azure_vms_in_rg": len(az_vms),
         "tc_stopping_count": len(tc_stopping),
         "ghost_count": len(ghosts),
