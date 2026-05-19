@@ -1,0 +1,145 @@
+# Windows image deploy reference
+
+## Where the version number comes from
+
+The "version" of a Windows image is an Azure Compute Gallery (Shared Image
+Gallery / SIG) version — three numeric components that the Packer build
+publishes to the gallery. There is no fixed mapping from OS family to
+`MAJOR.MINOR`; both numbers evolve over time and **only the gallery is
+authoritative**. Don't assume any particular version is "current" — go
+look it up.
+
+To find the next target version for a config:
+
+1. Open `worker-images/config/<config-name>.yaml`. Its
+   `sharedimage.image_version` field is the version that build will try to
+   publish.
+2. If it has not yet been bumped past the latest published version, bump
+   it (typically the trailing component) in a worker-images PR before
+   dispatching the build. Packer fails fast if the version already exists
+   in the gallery.
+3. Cross-check with the gallery itself if you want to be certain:
+   ```bash
+   az sig image-version list \
+     --resource-group rg-packer-worker-images \
+     --gallery-name <gallery_name> \
+     --gallery-image-definition <image_name> \
+     --query "[].name" -o tsv | sort -V
+   ```
+   The gallery and image-definition names are in the same config file.
+
+Configs in the same OS family usually move their trailing component in
+lockstep so the fxci-config diff is one coherent step, but that's a
+convention, not a constraint of the gallery. Trusted variants
+(`config/trusted-*.yaml`) are tracked in their own gallery and bump
+independently of their untrusted twins.
+
+## Where the ronin_puppet commit comes from
+
+Windows configs read `vm.tags.deploymentId` (a ronin_puppet commit hash)
+from `worker-images/config/windows_production_defaults.yaml`. Per-config
+files can override it; if they do, that override wins.
+
+To bump:
+
+1. Note the current default in
+   `worker-images/config/windows_production_defaults.yaml`.
+2. Confirm the new ronin_puppet commit is on `master` (Packer hard-codes
+   `sourceBranch: master`).
+3. Land a small worker-images PR that updates the default `deploymentId`
+   and bumps each per-config `image_version` you want rebuilt. Trusted
+   configs (`config/trusted-*.yaml`) need their `image_version` bumped
+   explicitly; their `deploymentId` follows the default.
+4. Then dispatch the build workflow.
+
+## Verifying a published version
+
+The most reliable signal is the per-config `Run Packer` step in the
+Action log:
+
+```bash
+gh run view --job <JOB_ID> --repo mozilla-platform-ops/worker-images \
+  --log 2>&1 | grep -E "(SIG image version|Shared Gallery Image Version ID|DeploymentId|OS Version)"
+```
+
+Look for two lines:
+
+```
+==> azure-arm.sig:  -> SIG image version : '1.3.3'
+==> azure-arm.sig:  -> Shared Gallery Image Version ID : '/subscriptions/.../galleries/<gallery>/images/<image>/versions/1.3.3'
+```
+
+If those land but the `Upload release notes` job failed, the SIG image is
+still published; the failure just means the SBOM didn't get committed
+back to the repo. That's acceptable to ship — note it in the PR body or
+fix it in a follow-up.
+
+## SBOMs
+
+`worker-images/sboms/<config>-<version>.md` is generated during the build
+and committed by the `Upload release notes` job. The files are UTF-16LE
+encoded — read with:
+
+```bash
+iconv -f UTF-16LE -t UTF-8 sboms/win11-64-24h2-1.3.3.md | head -40
+```
+
+Useful fields it captures:
+
+- `OS Version` — Windows build number (e.g. `26100.8246` for the April
+  2026 cumulative on 24H2).
+- `DeploymentId` — the ronin_puppet hash actually baked in. Cross-check
+  this against what you set in `windows_production_defaults.yaml`.
+- `Taskcluster Packages Installed` — generic-worker / livelog /
+  start-worker / proxy versions.
+
+If a SBOM is missing for a config that the run claims to have built, look
+at the `Upload release notes` job log; the most common failure is
+`untracked working tree files would be overwritten by merge` when two
+runs race to commit. The image itself is published regardless.
+
+## Range filtering for the PR body
+
+The ronin_puppet commit table in the PR body is filtered to
+**Windows-relevant** commits in `<prev_deploymentId>..<new_deploymentId>`.
+The cheap filter is:
+
+```bash
+cd ~/github_moz/ronin_puppet
+git log --oneline <prev>..<new>
+git show --stat <commit>  # for each, decide
+```
+
+Heuristics for Windows-relevance:
+
+- `data/os/Windows.yaml` change → Windows
+- `modules/win_*/` → Windows
+- `data/common.yaml` (scriptworker/cot bumps) → usually macOS, skip
+  unless verified
+- `modules/macos_*` / `tcc_perms` / `osx`/`mac` → macOS, skip
+- `roles/gecko_*_b_osx_*` → macOS, skip
+- ruby/dependabot bumps → typically skip unless the user asks
+
+When in doubt, include the commit and let review prune. The point is to
+give the reviewer a quick read of what's in the bump, not an exhaustive
+audit.
+
+## Common pitfalls
+
+- **Forgetting to bump trusted alongside untrusted.** Trusted galleries
+  are separate workflows and configs (`config/trusted-*.yaml`,
+  `FXCI - Azure - Trusted`). The fxci-config keys `ronin_b3_*` and
+  `trusted_win11_a64_25h2_builder` map to trusted images. PR #955 caught
+  one of these late — check both halves.
+- **Stale alpha entries.** Alpha pools (`*_alpha` keys with
+  `deployment_id: alpha`) are not part of a prod rollout. Don't touch
+  them in a prod-bump PR.
+- **Config dropped from production list.** Before editing, scan
+  `worker-images/config/windows_production_defaults.yaml`'s
+  `images.production` list. If a config was removed
+  (e.g. `win11-64-2009` in worker-images@`9bbca89`), its fxci-config
+  entry is frozen at the last shipped version — don't bump it.
+- **Re-using a `deploymentId` across families when ranges differ.** The
+  24H2 family and 25H2 family can be at different prior `deploymentId`s.
+  Compute the compare range from each family's prior baseline; if they
+  resolve to the same range, collapse to one table.
