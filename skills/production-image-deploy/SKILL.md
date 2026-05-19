@@ -1,30 +1,12 @@
 ---
 name: production-image-deploy
 description: |
-  Deploy a Firefox CI worker image end-to-end: trigger the production
-  worker-images build, verify what was published, bump
-  `worker-images.yml` in fxci-config, gate the rollout on Taskcluster
-  integration tests (via the `/taskcluster integration` PR comment or
-  optionally an alpha-pool try push), post the Slack changelog, and run
-  a post-merge worker-pool health check. Covers Windows (Azure SIG,
-  semver-versioned) and Linux (GCP, date-stamped image names).
-
-  Use this whenever the user wants to roll out a new ronin_puppet commit
-  to worker images, ship a new generic-worker / Taskcluster cloud
-  worker bump, promote alpha images to prod, or "do another version bump
-  like PR mozilla-releng/fxci-config#955 / #968". Trigger phrases
-  include "deploy production image", "roll out a new image version",
-  "bump windows images", "promote ubuntu 2404 image", "update
-  worker-images.yml in fxci-config", "ship new ronin_puppet commit",
-  "trigger integration tests on the fxci-config PR", "validate a new
-  image", "check that the new image is rolling out", and "follow up on
-  PR #<n>" when the referenced PR is an image-version bump.
-
-  Reach for this skill before doing the work by hand — it captures the
-  release-engineering conventions (validation gate, PR title format,
-  body skeleton, branch naming, `/taskcluster integration` comment
-  trigger, Slack changelog format, post-merge health checks, what NOT
-  to include) the team has converged on.
+  Deploy Firefox CI production worker images by coordinating worker-images
+  GitHub Actions builds, fxci-config worker-images.yml bumps, Taskcluster
+  integration validation, Slack changelogs, and post-merge pool health
+  checks. Use when rolling out ronin_puppet, generic-worker, Taskcluster
+  cloud-worker, Windows Azure SIG, or Linux GCP image changes to production.
+  DO NOT USE FOR build-only requests; use worker-image-build.
 ---
 
 # Production image deploy
