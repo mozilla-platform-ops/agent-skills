@@ -146,6 +146,40 @@ Linux builds are date-stamped (no ronin_puppet `deploymentId` — Linux is
 provisioned in-line with packer scripts under `scripts/linux/`), so this
 step doesn't apply.
 
+### Pre-flight: check the Marketplace base image (Windows)
+
+Before dispatching, enumerate the Marketplace image versions the config
+will pull and compare to the `OS Version` line in the previous
+successful SBOM. Microsoft republishes Marketplace images on its own
+cadence and the new image can regress something puppet relies on. A
+real instance: the May 7 republish of `win11-24h2-ent` ARM64 changed
+the OS build from `26100.8246` to `26100.8457` and made NetFx3 install
+fail intermittently.
+
+The check (publisher / offer / sku come from the `marketplace_image:`
+block in `worker-images/config/<config>.yaml`):
+
+```bash
+az vm image list \
+  --publisher MicrosoftWindowsDesktop \
+  --offer <offer> --sku <sku> --all \
+  --query "[?starts_with(version,'<expected-major>')].{version:version}" \
+  -o table
+```
+
+If the latest version is newer than what's recorded in the last good
+SBOM, expect potential issues and have a pin-to-known-good recipe
+ready (see `references/windows.md`).
+
+### Overriding the build region
+
+`config/<config>.yaml` accepts an `azure.build_location` field (a
+single Azure region string, e.g. `westus2`) that overrides the wrapper
+script's default `Central US` build region. Useful when a per-region
+Microsoft Update CDN issue is suspected — switch to a different region
+and retry the build. The knob is per-config and lives alongside the
+other `azure:` fields.
+
 ### Dispatching
 
 Use `gh workflow run` with the exact workflow name (the parallel ones take
@@ -190,10 +224,12 @@ hand off the run URL and come back when it finishes.
 
 ## Phase 2 — Verify what was published
 
-Don't trust workflow titles alone. Builds can succeed yet publish a
-different version than expected (e.g. when the per-config `image_version`
-wasn't bumped). The `Upload release notes` job can also fail silently
-without affecting the published artifact.
+Don't trust workflow titles alone. Job conclusions can lie in both
+directions: a job marked "failure" can still have published the image
+to SIG (one rollout had a config publish v1.0.4 successfully while its
+job showed red), and a job marked "success" can publish the wrong
+version if the per-config `image_version` wasn't bumped. The authority
+is the gallery and the SBOM, not the job badge.
 
 For each rebuilt config:
 
@@ -206,22 +242,71 @@ For each rebuilt config:
    `OS Integration Tests - <config>` job will also appear here. Treat
    its conclusion as the in-build validation signal; if it failed,
    investigate before continuing to phase 3.
-2. For Windows, search the per-config build log for the published version
+2. **(Windows) Confirm the version exists in the SIG.** This is the
+   authoritative check — it tells you whether the image is actually
+   reachable by worker-manager, regardless of what the job badge says:
+   ```bash
+   az sig image-version list \
+     --resource-group rg-packer-worker-images \
+     --gallery-name <gallery_name> \
+     --gallery-image-definition <image_name> \
+     --query "[].{name:name, provisioning:provisioningState, publishedDate:publishingProfile.publishedDate}" \
+     -o table
+   ```
+   The `provisioningState` should be `Succeeded`. If the version is
+   absent, the build genuinely didn't publish — fall back to (3) for
+   the Packer log diagnosis.
+3. For Windows, search the per-config build log for the published version
    and gallery URL — Packer prints them at the end of the `Run Packer`
    step:
    ```bash
    gh run view --job <JOB_ID> --repo mozilla-platform-ops/worker-images \
      --log 2>&1 | grep -E "(SIG image version|Shared Gallery Image Version ID|deploymentId)"
    ```
-3. Cross-check against the SBOMs in `worker-images/sboms/` (UTF-16 — pipe
+4. **(Windows) Confirm the baked-in ronin_puppet tag.** Tags on the
+   gallery version record the `deploymentId` that was actually baked
+   in. Use this when the SBOM is missing or you want to verify without
+   reading UTF-16:
+   ```bash
+   az sig image-version show \
+     --resource-group rg-packer-worker-images \
+     --gallery-name <gallery_name> \
+     --gallery-image-definition <image_name> \
+     --gallery-image-version <V> \
+     --query "tags" -o json
+   ```
+5. Cross-check against the SBOMs in `worker-images/sboms/` (UTF-16 — pipe
    through `iconv -f UTF-16LE -t UTF-8`). The SBOM filename is
    `<config>-<version>.md` and contains the resolved `DeploymentId`,
    `OS Version`, and Taskcluster package versions.
-4. For Linux, the published image's full GCE name (with date suffix)
+6. For Linux, the published image's full GCE name (with date suffix)
    appears in the deploy step's log; capture it verbatim — that's what
    goes into fxci-config.
 
 Detailed verify recipes: `references/windows.md` and `references/linux.md`.
+
+### Recovering a missing SBOM
+
+The `Upload release notes` job has a known race: it runs
+`git pull --rebase --autostash origin main` against a working tree
+that has untracked SBOM files. If `main` moved between job start and
+the pull, git refuses to overwrite the untracked SBOM and aborts.
+`gh run rerun --failed` does **not** re-run a previously-successful
+upload job, so a rerun that publishes a new image won't auto-commit
+its SBOM either.
+
+If the image is in the gallery (phase-2 step 2 passes) but the SBOM
+isn't on `main`, recover it by hand from the run's artifact:
+
+```bash
+gh run download <RUN_ID> --repo mozilla-platform-ops/worker-images \
+  --name release-notes-<config> --dir /tmp/sbom
+cp /tmp/sbom/<config>-<version>.md ~/github_moz/worker-images/sboms/
+cd ~/github_moz/worker-images
+git add sboms/<config>-<version>.md
+git commit -m "Update release notes"
+git push origin main
+```
 
 ## Phase 3 — Bump fxci-config and open the PR
 
@@ -285,6 +370,40 @@ read the diff as a new regression.
 
 Reference templates and worked examples: `references/pr-templates.md`.
 
+### Opening the PR
+
+Use `gh pr create --body-file <file>` and `gh pr edit --body-file
+<file>`. Do **not** pass the body via a HEREDOC: the shell escapes
+backticks, and every inline-code span in the rendered PR ends up with
+literal `\` prefixes. Write the body to a temp file and reference it:
+
+```bash
+gh pr create --title "<title>" --body-file /tmp/pr-body.md
+gh pr edit <PR_NUMBER> --body-file /tmp/pr-body.md   # for follow-ups
+```
+
+### Partial rollouts (N of M configs published)
+
+If only some configs published — e.g. 10 of 11 — don't hold the PR
+open waiting for the stragglers. Drop the deferred entries from the PR
+and open a follow-up once they publish.
+
+On the same branch, make a **new commit** that reverts the deferred
+entries back to their prior `version` / `deployment_id`. Don't amend
+or force-push the original commit — a new commit on the open PR
+branch is cleaner and preserves review history. Then:
+
+- Update the PR title from `bump <N> configs` to `bump <M> of <N>
+  configs`.
+- Edit the PR body (via `--body-file`) to name the deferred configs
+  and the reason.
+- Once the deferred configs publish, open a follow-up fxci-config PR
+  for them.
+
+This pattern also applies to single-entry reverts on an open PR
+branch: prefer a small new commit over an amend, even when the PR
+hasn't been reviewed yet.
+
 ### Trigger integration tests on the PR
 
 Immediately after opening the PR, post the comment `/taskcluster
@@ -334,10 +453,12 @@ plain-text post with three sections:
 Don't post until the PR has merged; the SBOM URLs resolve to
 `/blob/main/...` and 404 until the merge commit lands.
 
-The full template (Windows + Linux variants) and the friendly-name
-mapping the team uses live in `references/slack-changelog.md`. Trim the
-URL list to only the configs that were actually rebuilt — a hotfix
-should not include lines for configs that didn't move.
+The full template (Windows + Linux variants), the friendly-name
+mapping the team uses, and the dual HTML + plain-text clipboard
+recipe for getting bullets to render in Slack live in
+`references/slack-changelog.md`. Trim the URL list to only the
+configs that were actually rebuilt — a hotfix should not include
+lines for configs that didn't move.
 
 ## Phase 5 — Post-merge worker-pool health check
 
@@ -352,17 +473,78 @@ Wait 15–30 minutes after merge, then for each bumped pool:
    (Linux) is showing up on freshly-provisioned workers**, using
    `tc-logview`'s `worker-running` events. Old IDs should fade as old
    workers terminate; new IDs should be visible within ~30 minutes.
+
+   The `deploymentId` is **not** projected as a typed worker-manager
+   log field. A naive `tc-logview --filter '"<deploymentId>"'`
+   returns 0 entries even when workers are running with the new
+   image. Read the raw payload to find where the tag actually lives —
+   see `references/post-merge-health.md`.
 2. **Sanity-check pending counts and pool capacity** via
-   `taskcluster api`. A short-lived spike during the rollover is
-   normal; a sustained climb is not.
-3. **Watch `worker-error` for new failure modes.** A spike in sysprep
-   or generic-worker-startup errors right after merge usually means a
-   bad image — be ready to roll back.
+   `taskcluster api queue pendingTasks <pool>`. A short-lived spike
+   during the rollover is normal; a sustained climb is not.
+3. **Watch `worker-error` for new failure modes.** Query by typed
+   `workerPoolId`, not by substring-filtering the deploymentId. A
+   spike in sysprep or generic-worker-startup errors right after
+   merge usually means a bad image — be ready to roll back.
 4. If anything looks off, hand off to the `queue-diagnosis` skill for
    a structured supply/demand split before reacting.
 
 Concrete `tc-logview` queries, escalation thresholds, and the rollback
 recipe live in `references/post-merge-health.md`.
+
+## Known problematic steps
+
+### NetFx3 / DXSDK install on fresh Azure ARM64 VMs
+
+The puppet class `dxsdk_jun10::install_net_framework3.5` calls
+`Enable-WindowsOptionalFeature -Online -FeatureName NetFx3 -All` and
+fails intermittently on fresh ARM64 VMs. Failure mode:
+
+- The DISM call returns non-zero; the feature stays in
+  `DisabledWithPayloadRemoved`.
+- Packer's `Start-AzRoninPuppet` step fails with `Error code 6`.
+- Failures cluster on certain configs / OS versions and on specific
+  reruns — partly per-OS-build, partly random.
+
+Recovery, in escalating order:
+
+1. Rerun the failed config up to ~3 times. The failure flips on
+   retry often enough that this is worth trying first.
+2. Pin the Marketplace base image `version` in the failing config
+   YAML to the last known-good version (the OS Version from the
+   previous successful SBOM). Use the phase-1 pre-flight `az vm
+   image list` query to find available versions.
+3. Source the Win11 ARM64 NetFx3 SxS cab from a Features-on-Demand
+   ISO, stage it in the `roninpuppetassets` blob, and patch
+   `dxsdk_jun10::install_net_framework3.5` in ronin_puppet to use
+   `-Source <local-path> -LimitAccess` so DISM never tries to fetch
+   from Windows Update.
+
+## Debugging a failing build from the live VM
+
+The GitHub Actions log only shows what Packer's WinRM session
+captures. It lags the in-VM activity by 25+ minutes for slow DISM
+calls and often omits the real HRESULT. The authoritative source is
+the in-VM puppet/CBS/DISM logs while the build VM still exists.
+
+While the build VM is still running (before `cleanup_provisioner`
+fires), use `az vm run-command invoke` against the transient packer
+resource group (named like `<CONFIG>-<DEPLOYMENT_ID>-<N>-PKRTMP`) to
+run a PowerShell payload that reads logs and process state. Locate
+the VM with `az vm list`. Hand off the actual PowerShell to a
+`helper` agent — the right script depends on what's being
+investigated, and spelling out one recipe here would bake in the
+wrong assumptions.
+
+Things worth knowing before the helper runs:
+
+- Puppet's log path on these images is non-obvious. Start with
+  `C:\Windows\Logs\DISM\dism.log` and `C:\Windows\Logs\CBS\CBS.log`
+  — both are reliable for Windows-feature install failures.
+- DISM at `/LogLevel:4` is verbose enough to surface HRESULTs but
+  slow. Expect 20+ minutes before a failing DISM call returns.
+- The packer resource group is destroyed on cleanup. Capture
+  anything you need before re-dispatching the build.
 
 ## What this skill does NOT do
 

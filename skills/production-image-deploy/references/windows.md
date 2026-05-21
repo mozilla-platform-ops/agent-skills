@@ -34,6 +34,57 @@ convention, not a constraint of the gallery. Trusted variants
 (`config/trusted-*.yaml`) are tracked in their own gallery and bump
 independently of their untrusted twins.
 
+## Pre-flight: comparing Marketplace base image versions
+
+Microsoft republishes Marketplace images on its own cadence and the new
+image can regress something puppet relies on. Before dispatching,
+compare the latest available Marketplace version against the
+`OS Version` line in the previous successful SBOM for that config.
+
+Publisher / offer / sku come from the `marketplace_image:` block in
+`worker-images/config/<config>.yaml`. Example for `win11-a64-25h2-*`:
+
+```bash
+az vm image list \
+  --publisher MicrosoftWindowsDesktop \
+  --offer windows-11 --sku win11-25h2-ent \
+  --all \
+  --query "[?starts_with(version,'26100')].{version:version}" \
+  -o table
+```
+
+If the latest version is newer than the SBOM's `OS Version`, expect
+potential regressions. The May 7 republish of `win11-24h2-ent` ARM64
+moved the OS build from `26100.8246` to `26100.8457` and broke NetFx3
+install intermittently — see "Pinning to last known good" below.
+
+### Pinning to last known good
+
+If a republished Marketplace image is causing build failures, pin
+the config's base image version to the last known-good version in
+`worker-images/config/<config>.yaml`:
+
+```yaml
+marketplace_image:
+  publisher: MicrosoftWindowsDesktop
+  offer: windows-11
+  sku: win11-25h2-ent
+  version: 26100.8246.250407  # pinned; was `latest`
+```
+
+The exact version string is whatever the `az vm image list` query
+above returned for the known-good build. Land the pin as a small
+worker-images PR, then re-dispatch.
+
+## The `azure.build_location` knob
+
+Per-config override for the Azure region the Packer build runs in.
+The wrapper script defaults to `Central US`; setting
+`azure.build_location: <region>` (a single string like `westus2`)
+overrides it. Useful when a per-region Microsoft Update CDN issue
+is suspected — switch regions and retry. The field lives alongside
+the other `azure:` keys in `config/<config>.yaml`.
+
 ## Where the ronin_puppet commit comes from
 
 Windows configs read `vm.tags.deploymentId` (a ronin_puppet commit hash)

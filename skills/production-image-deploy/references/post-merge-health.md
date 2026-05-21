@@ -11,6 +11,33 @@ re-evaluates pool config on its own cadence and existing VMs continue
 running until they terminate normally; the rollout is gradual, not
 instantaneous.
 
+## Read this first: deploymentId is not a typed field
+
+The ronin_puppet `deploymentId` is **not** projected as a typed
+worker-manager log field. A query like
+
+```bash
+tc-logview query -e fx-ci --service worker-manager \
+  --filter '"<deploymentId>"' --since 30m
+```
+
+returns 0 entries even when workers ARE running with the new image.
+Don't burn time on substring filters as your primary signal — they
+produce false negatives. Use these checks instead:
+
+- `worker-error` events for the affected pool over the last 30 min
+  (typed field `workerPoolId`) — should be flat.
+- Pending counts via `taskcluster api queue pendingTasks <pool>` —
+  should be at or near steady-state.
+- The Taskcluster UI worker-type page (linked below) — shows worker
+  count and recent task throughput at a glance.
+
+The "confirm the deploymentId" recipe below reads the raw event
+payload (where the tag actually lives) instead of substring-filtering
+typed fields. Use that when you need to confirm a specific
+deploymentId; use the signals above when you just need "is the
+rollout healthy?".
+
 ## Identifying the pools to check
 
 `worker-images.yml` bindings flow into `worker-pools.yml` aliases.

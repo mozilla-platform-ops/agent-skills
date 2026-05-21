@@ -86,10 +86,50 @@ version:
 
 ### Producing the post
 
-Resolve every `<V>` and `<PR_NUMBER>` placeholder before sending. The
-changelog is meant to be plain text in Slack — no Markdown rendering —
-so leave the URLs bare. Don't use Slack's "code block" formatting; the
-team posts these as regular messages.
+Resolve every `<V>` and `<PR_NUMBER>` placeholder before sending.
+Leave URLs bare; don't use Slack's "code block" formatting.
+
+### Getting bullets to render
+
+Slack's auto-detection of `•` and `- ` is inconsistent across paste
+contexts. A plain-text changelog will sometimes render bullets as
+literal characters. `textutil ... | pbcopy -Prefer rtf` puts RTF on
+the clipboard but no plain-text fallback, and Slack's editor
+sometimes drops to plain-text mode in which case the RTF is
+discarded.
+
+The reliable pattern is to put **both** HTML and plain text on the
+clipboard simultaneously via PyObjC. Slack picks the format it can
+render; the plain-text fallback covers the case where it can't.
+
+Save as `/tmp/slack-clip.py` and run with `uv run --script
+/tmp/slack-clip.py`:
+
+```python
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pyobjc-framework-Cocoa"]
+# ///
+from AppKit import NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeString
+
+html = """<ul>
+<li>Taskcluster 99.2.0 generic worker</li>
+<li>Azure VM Agent update</li>
+</ul>"""
+
+plain = """- Taskcluster 99.2.0 generic worker
+- Azure VM Agent update
+"""
+
+pb = NSPasteboard.generalPasteboard()
+pb.clearContents()
+pb.setString_forType_(html, NSPasteboardTypeHTML)
+pb.setString_forType_(plain, NSPasteboardTypeString)
+```
+
+Build the `html` and `plain` strings from the same source so they
+stay in sync. The URL list at the bottom of the post stays plain
+text in both — Slack auto-links bare URLs in either mode.
 
 ## Linux
 
