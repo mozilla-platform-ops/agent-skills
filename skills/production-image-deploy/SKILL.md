@@ -146,6 +146,14 @@ Linux builds are date-stamped (no ronin_puppet `deploymentId` — Linux is
 provisioned in-line with packer scripts under `scripts/linux/`), so this
 step doesn't apply.
 
+### Temporarily excluding a chronically failing config
+
+A config that fails 5+ reruns in a row can be removed from the
+`images.production` list in
+`worker-images/config/windows_production_defaults.yaml` so parallel
+prod runs stay clean while you iterate on the fix. Add it back once
+fixed; this is cleaner than re-dispatching single-config builds.
+
 ### Pre-flight: check the Marketplace base image (Windows)
 
 Before dispatching, enumerate the Marketplace image versions the config
@@ -222,6 +230,12 @@ Builds take a while (look at recent runs of the same workflow to set
 expectations rather than guessing) — don't poll in a tight loop; just
 hand off the run URL and come back when it finishes.
 
+`gh run watch` follows a single run; when you dispatch in parallel
+(e.g. one `FXCI - Azure` and one `FXCI - Azure - Trusted` at the same
+time), it can't track both. Either poll
+`gh run list --workflow "<name>" --limit N --json status,conclusion,databaseId`
+periodically, or rely on the GHA email notification per run.
+
 ## Phase 2 — Verify what was published
 
 Don't trust workflow titles alone. Job conclusions can lie in both
@@ -293,7 +307,8 @@ that has untracked SBOM files. If `main` moved between job start and
 the pull, git refuses to overwrite the untracked SBOM and aborts.
 `gh run rerun --failed` does **not** re-run a previously-successful
 upload job, so a rerun that publishes a new image won't auto-commit
-its SBOM either.
+its SBOM either. The same caveat applies to `OS Integration Tests` —
+already-successful chained jobs aren't re-triggered by `--failed`.
 
 If the image is in the gallery (phase-2 step 2 passes) but the SBOM
 isn't on `main`, recover it by hand from the run's artifact:
@@ -403,6 +418,12 @@ branch is cleaner and preserves review history. Then:
 This pattern also applies to single-entry reverts on an open PR
 branch: prefer a small new commit over an amend, even when the PR
 hasn't been reviewed yet.
+
+### Staging validation (tc-admin diff)
+
+Skip `tc-admin diff --environment staging` for a pure `worker-images.yml`
+version bump; stage first when the same PR also edits `worker-pools.yml`,
+scopes, or other fxci-config semantics.
 
 ### Trigger integration tests on the PR
 
@@ -520,6 +541,10 @@ Recovery, in escalating order:
    `-Source <local-path> -LimitAccess` so DISM never tries to fetch
    from Windows Update.
 
+Cap step (1) at ~3 attempts before escalating to (2) or (3). One
+config burning 7 reruns at ~95 min on Standard_E8pds_v5 is ~16 hours
+of ARM64 compute for no new signal — escalate sooner.
+
 ## Debugging a failing build from the live VM
 
 The GitHub Actions log only shows what Packer's WinRM session
@@ -545,6 +570,14 @@ Things worth knowing before the helper runs:
   slow. Expect 20+ minutes before a failing DISM call returns.
 - The packer resource group is destroyed on cleanup. Capture
   anything you need before re-dispatching the build.
+- Spot-check anything an agent quotes from a specific path. The
+  investigator can confabulate file content when the file doesn't
+  exist; verify by re-reading from the claimed location before
+  acting on it.
+- The transient packer resource group is deleted ~60s after the
+  build state transitions in GHA (success or failure). Capture
+  anything you need from the VM before the run completes; otherwise
+  re-dispatch and re-investigate.
 
 ## What this skill does NOT do
 

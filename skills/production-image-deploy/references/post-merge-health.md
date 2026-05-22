@@ -48,8 +48,12 @@ defined. Pull them out with:
 
 ```bash
 cd ~/github_moz/fxci-config
-grep -nE "pool_id|workerType" worker-pools.yml | grep -B1 <alias>
+grep -n <alias> worker-pools.yml
 ```
+
+Read the 1–2 surrounding lines for the `<provisioner>/<workerType>`
+pool ID — the YAML structure varies, but the pool ID is always
+adjacent to the alias reference.
 
 Phase 3's fxci-config diff is the authoritative list of which aliases
 moved.

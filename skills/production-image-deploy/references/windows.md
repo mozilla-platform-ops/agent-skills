@@ -1,5 +1,10 @@
 # Windows image deploy reference
 
+## Azure subscriptions
+
+- Untrusted: `"FXCI Azure DevTest Subscription"`
+- Trusted: `"Trusted FXCI Azure DevTest Subscription"`
+
 ## Where the version number comes from
 
 The "version" of a Windows image is an Azure Compute Gallery (Shared Image
@@ -84,6 +89,13 @@ The wrapper script defaults to `Central US`; setting
 overrides it. Useful when a per-region Microsoft Update CDN issue
 is suspected — switch regions and retry. The field lives alongside
 the other `azure:` keys in `config/<config>.yaml`.
+
+Confirm Packer honored the override by listing live `pkrvm*` VMs in
+the target region:
+
+```bash
+az vm list --query "[?location=='<region>' && starts_with(name, 'pkrvm')]" -o table
+```
 
 ## Where the ronin_puppet commit comes from
 
