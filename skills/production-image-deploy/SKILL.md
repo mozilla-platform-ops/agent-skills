@@ -116,8 +116,8 @@ membership in `.github/relsre.json`.
 | Workflow name | Use when |
 |---|---|
 | `FXCI - Azure` | Build a single Windows config (untrusted gallery: `win10-*`, `win11-*`, `win2022-*`, alphas). Most common. |
-| `FXCI - Azure - Trusted` | Trusted gallery only: `trusted-win11-a64-24h2-builder`, `trusted-win11-a64-25h2-builder`, `trusted-win2022-64-2009`. |
-| `FXCI - Azure Prod Parallel Images` | Build every production Windows config in one matrix run. Used when ronin_puppet bumps affect all families (e.g. PR #955, #982). |
+| `FXCI - Azure - Trusted` | Trusted gallery only: `trusted-win11-a64-25h2-builder`, `trusted-win2022-64-2009`. |
+| `FXCI - Azure Prod Parallel Images` | Build every production Windows config in one matrix run — all 8 (6 untrusted from `images.production`, plus the 2 Azure `trusted-*.yaml` configs auto-discovered by `ci/get-azure-production-parallel-matrix.ps1`; `trusted-gw-fxci-gcp-*` is excluded by its `^trusted-(?!gw-fxci-gcp)` filter). Used when ronin_puppet bumps affect all families (e.g. PR #955, #982). |
 | `FXCI - Azure Alpha Parallel Images` | Same, alpha pools only. |
 
 ### Linux (GCP)
@@ -142,9 +142,40 @@ doesn't, land a small worker-images PR that bumps the default (and bumps
 each config's `image_version` to the next semver) **before** dispatching
 the build. See `references/windows.md` for the version semantics.
 
+Find the latest `master` short hash with
+`gh api repos/mozilla-platform-ops/ronin_puppet/commits/master --jq '.sha[0:7]'`;
+the current production pin is the `deploymentId` in
+`windows_production_defaults.yaml`. If they match, production is already on
+the latest master — no bump needed.
+
 Linux builds are date-stamped (no ronin_puppet `deploymentId` — Linux is
 provisioned in-line with packer scripts under `scripts/linux/`), so this
 step doesn't apply.
+
+### Validate on alpha before production (Windows)
+
+The expected rollout sequence for a ronin_puppet bump is **alpha first,
+then production** — gated on the alpha builds' in-build os-integration
+(surface 1) passing. Dispatch `FXCI - Azure Alpha Parallel Images`, let it
+finish, confirm its `OS Integration Tests - <config>` jobs are green, and
+only then dispatch the prod parallel workflow.
+
+Caveat that bites here — the alpha configs do **not** automatically track
+master. Several pin `sourceBranch` to a relops feature branch with
+`deploymentId: NA` (at this writing, the ones on
+`relops/remove-vac-azure-cloud-workers`). To validate a *master* commit on
+alpha via the prod-defaults pin, you must both set the prod-defaults
+`deploymentId` to the new hash **and** switch each alpha config to
+`sourceBranch: master` + `deploymentId: default` so it inherits the pin.
+That overwrites whatever feature branch the alpha was testing — confirm
+with the user before changing it.
+
+Alpha coverage gaps to account for: `win11-a64-25h2-builder-alpha` is
+commented out of `images.alpha` (the alpha parallel build skips it), and
+the a64 `*-builder` and all `win2022*` configs are excluded from
+os-integration auto-chaining anyway. Those get no surface-1 alpha signal —
+lean on surface 2 (`/taskcluster integration` on the fxci-config PR) or
+surface 3 for them.
 
 ### Temporarily excluding a chronically failing config
 
