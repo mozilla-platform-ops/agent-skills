@@ -105,6 +105,36 @@ the `treeherder` skill. New Tier-1 reds → fix in ronin_puppet and
 rebuild before continuing; non-blocking follow-ups → file a RELOPS
 ticket and reference it in the phase-3 PR's `## Related` section.
 
+## Phase 0 — Open the RELOPS tracking Story
+
+Every production Windows image rollout gets a RELOPS tracking issue. Use
+the `jira` skill (`scripts/extract_jira.py`); run the description through
+`/humanizer` first.
+
+- **Type:** `Story` (`--issue-type-create Story`). Self-report/assign.
+- **Summary:** `Update Windows worker images to <untrusted_ver> / <25h2_ver>`
+  (e.g. `Update Windows worker images to 1.3.5 / 1.0.5`). Canonical prior
+  examples: RELOPS-2329, RELOPS-2453.
+- **Epic:** file under the current period's `[YYYY HX] Win 10/11 Support and
+  Deployments: Cloud and Hardware` epic (`--set-epic`), where the prior
+  rollout Stories live — RELOPS-2047 for 2026 H1. A new one is cut each
+  half/quarter; pick the open one (don't leave the Story epic-less).
+- **Description:** "Build and deploy new versions of all production Windows
+  worker images", then the version bumps (which images inherit the
+  prod-defaults bump vs the explicit 25h2/ARM64 overrides), the ronin_puppet
+  commit range, and a Work checklist mirroring phases 1-5.
+- **Link the underlying RELOPS stories.** The ronin_puppet PRs merged into
+  the target `deploymentId` carry their own RELOPS tickets; find them from
+  the commit range and link each (`--link-issue`). Example for `82415f4`:
+  `gh api repos/mozilla-platform-ops/ronin_puppet/compare/<prev>...<new> --jq '.commits[].commit.message'`
+  surfaced RELOPS-2437 (VBCABLE) and RELOPS-2449 (NetFx3/DXSDK skip). Skip
+  commits with no RELOPS ref or that aren't Windows-relevant (macOS, generic).
+- **Drive the status:** `Backlog → In Progress` when you start the build,
+  `→ Done` after the fxci-config PR merges and phase-5 health check passes.
+
+This Story is the umbrella; reference it (`RELOPS-####`) in the worker-images
+and fxci-config PRs.
+
 ## Phase 1 — Trigger the build
 
 Pick the workflow based on cloud + image kind. Files live in
