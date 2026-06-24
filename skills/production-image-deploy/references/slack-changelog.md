@@ -102,8 +102,10 @@ The reliable pattern is to put **both** HTML and plain text on the
 clipboard simultaneously via PyObjC. Slack picks the format it can
 render; the plain-text fallback covers the case where it can't.
 
-Save as `/tmp/slack-clip.py` and run with `uv run --script
-/tmp/slack-clip.py`:
+Fill in `bullets`, `links`, and `PR`, save as `/tmp/slack-clip.py`, and run
+`uv run --script /tmp/slack-clip.py`. It builds the whole post (header,
+bullets, PR link, release-notes URLs) for both clipboard formats from one
+source, so they stay in sync:
 
 ```python
 # /// script
@@ -112,24 +114,54 @@ Save as `/tmp/slack-clip.py` and run with `uv run --script
 # ///
 from AppKit import NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeString
 
-html = """<ul>
-<li>Taskcluster 99.2.0 generic worker</li>
-<li>Azure VM Agent update</li>
-</ul>"""
+BASE = "https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms"
+PR = "https://github.com/mozilla-releng/fxci-config/pull/<PR_NUMBER>"
 
-plain = """- Taskcluster 99.2.0 generic worker
-- Azure VM Agent update
-"""
+# One bullet per Windows-relevant change in the ronin_puppet commit range.
+# Don't drop one: a single rollout often ships several (e.g. for 82415f4 it
+# was VBCABLE pack 45, NetFx3/DXSDK removal on ARM64, AND the cache-workaround
+# removal). Source them from the commit range, not just the headline ticket.
+bullets = [
+    "VB-CABLE (pack 45) replaces Virtual Audio Cable on Azure Windows workers",
+    "NetFx3 and the DirectX SDK removed from ARM64 builders",
+    "Removed legacy Windows cache workarounds (cache paths now read from the worker environment)",
+]
+
+# (Slack friendly label, sbom filename without .md) -- only the rebuilt configs.
+links = [
+    ("Win10 22H2", "win10-64-2009-1.3.5"),
+    ("Win11 24H2 x64", "win11-64-24h2-1.3.5"),
+    ("Win11 25H2 x64", "win11-64-25h2-1.0.5"),
+    ("Win11 25H2 aarch64", "win11-a64-25h2-tester-1.0.5"),
+    ("Win11 25H2 aarch64 L1 Builder", "win11-a64-25h2-builder-1.0.5"),
+    ("Win11 25H2 aarch64 L3 Builder", "trusted-win11-a64-25h2-builder-1.0.5"),
+    ("Win2022 L1 Builder", "win2022-64-2009-1.3.5"),
+    ("Win2022 L3 Builder", "trusted-win2022-64-2009-1.3.5"),
+]
+
+# "Latest windows updates" is a plain line directly above the bullets -- do NOT
+# bold it; it reads as part of the bullet block.
+plain_lines = ["We've updated all windows cloud images. See changelog below:", "", "", "Latest windows updates"]
+plain_lines += [f"- {b}" for b in bullets]
+plain_lines += ["", "", f"Link to fxci-config PR {PR}", "", "Release Notes:", ""]
+plain_lines += [f"{label}: {BASE}/{fn}.md" for label, fn in links]
+plain = "\n".join(plain_lines) + "\n"
+
+html_parts = ["We've updated all windows cloud images. See changelog below:<br><br>", "Latest windows updates", "<ul>"]
+html_parts += [f"<li>{b}</li>" for b in bullets]
+html_parts += ["</ul>", f"Link to fxci-config PR {PR}<br><br>", "Release Notes:<br><br>"]
+html_parts += [f"{label}: {BASE}/{fn}.md<br>" for label, fn in links]
+html = "".join(html_parts)
 
 pb = NSPasteboard.generalPasteboard()
 pb.clearContents()
 pb.setString_forType_(html, NSPasteboardTypeHTML)
 pb.setString_forType_(plain, NSPasteboardTypeString)
+print("copied to clipboard (HTML + plain)")
 ```
 
-Build the `html` and `plain` strings from the same source so they
-stay in sync. The URL list at the bottom of the post stays plain
-text in both — Slack auto-links bare URLs in either mode.
+The URL list at the bottom stays plain text in both formats; Slack
+auto-links bare URLs in either mode.
 
 ## Linux
 
