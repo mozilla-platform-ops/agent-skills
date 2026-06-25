@@ -206,3 +206,59 @@ audit.
   24H2 family and 25H2 family can be at different prior `deploymentId`s.
   Compute the compare range from each family's prior baseline; if they
   resolve to the same range, collapse to one table.
+
+## Troubleshooting: NetFx3 / DXSDK install on fresh ARM64 VMs
+
+The puppet class `dxsdk_jun10::install_net_framework3.5` calls
+`Enable-WindowsOptionalFeature -Online -FeatureName NetFx3 -All` and fails
+intermittently on fresh ARM64 VMs:
+
+- The DISM call returns non-zero; the feature stays in
+  `DisabledWithPayloadRemoved`.
+- Packer's `Start-AzRoninPuppet` step fails with `Error code 6`.
+- Failures cluster on certain configs / OS versions and on specific reruns
+  — partly per-OS-build, partly random.
+
+Recovery, in escalating order:
+
+1. Rerun the failed config up to ~3 times. The failure flips on retry often
+   enough that this is worth trying first.
+2. Pin the Marketplace base image `version` in the failing config YAML to
+   the last known-good version (see "Pinning to last known good" above).
+3. Source the Win11 ARM64 NetFx3 SxS cab from a Features-on-Demand ISO,
+   stage it in the `roninpuppetassets` blob, and patch
+   `dxsdk_jun10::install_net_framework3.5` in ronin_puppet to use
+   `-Source <local-path> -LimitAccess` so DISM never fetches from Windows
+   Update.
+
+Cap step (1) at ~3 attempts before escalating. One config burning 7 reruns
+at ~95 min on Standard_E8pds_v5 is ~16 hours of ARM64 compute for no new
+signal — escalate sooner.
+
+## Debugging a failing build from the live VM
+
+The GitHub Actions log only shows what Packer's WinRM session captures. It
+lags in-VM activity by 25+ minutes for slow DISM calls and often omits the
+real HRESULT. The authoritative source is the in-VM puppet/CBS/DISM logs
+while the build VM still exists.
+
+While the build VM is still running (before `cleanup_provisioner` fires),
+use `az vm run-command invoke` against the transient packer resource group
+(named like `<CONFIG>-<DEPLOYMENT_ID>-<N>-PKRTMP`) to run a PowerShell
+payload that reads logs and process state. Locate the VM with `az vm list`.
+Hand off the actual PowerShell to a `helper` agent — the right script
+depends on what's being investigated.
+
+Things worth knowing before the helper runs:
+
+- Puppet's log path on these images is non-obvious. Start with
+  `C:\Windows\Logs\DISM\dism.log` and `C:\Windows\Logs\CBS\CBS.log` — both
+  are reliable for Windows-feature install failures.
+- DISM at `/LogLevel:4` is verbose enough to surface HRESULTs but slow;
+  expect 20+ minutes before a failing DISM call returns.
+- Spot-check anything an agent quotes from a specific path — investigators
+  can confabulate file content; verify by re-reading from the claimed
+  location before acting on it.
+- The transient packer resource group is deleted ~60s after the build
+  state transitions in GHA (success or failure). Capture anything you need
+  before the run completes; otherwise re-dispatch and re-investigate.
