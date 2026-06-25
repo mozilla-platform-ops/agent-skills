@@ -135,6 +135,41 @@ the `jira` skill (`scripts/extract_jira.py`); run the description through
 This Story is the umbrella; reference it (`RELOPS-####`) in the worker-images
 and fxci-config PRs.
 
+### Companion Bugzilla bug
+
+RELOPS tracks the rollout in JIRA, but each deployment also gets a Bugzilla
+bug so it shows up in the BMO RelOps queue. File it alongside the Story with
+the `bugzilla` skill (`scripts/bz.py create`):
+
+- **Product / Component:** `Infrastructure & Operations` / `RelOps: Windows OS`
+  (not the `create-image-regression` default of `Infrastructure & Release
+  Engineering` / `General` — that template is for regressions, not rollouts).
+- **Type:** `task` (`-t task`). BMO rejects a create with no type; the `create`
+  subcommand defaults to `task` for exactly this case.
+- **Version:** `other` (this product carries no per-release versions).
+- **Summary:** mirror the Story — `Update Windows worker images to <ver> / <ver>
+  (ronin_puppet <short-sha>)`.
+- **Description:** reuse the Story body (version bumps, ronin_puppet commit
+  range, PR list). Put the Story URL at the top. **Write every reference as a
+  full URL** — BMO comments are plain text and only auto-link bare URLs and
+  `Bug ####`; shorthand like `worker-images#817`, `fxci-config#1058`, or
+  `RELOPS-2449` stays unlinked. Use
+  `https://github.com/<org>/<repo>/pull/<n>` and
+  `https://mozilla-hub.atlassian.net/browse/RELOPS-####` instead. Get this
+  right on the first post: BMO's REST API can't edit comment 0 afterward
+  (`PUT /bug/comment/{id}` returns 404), so a follow-up comment is the only
+  fix for a description with dead shorthand.
+- **Cross-link both ways:** `--see-also <RELOPS Story URL>` on the bug, then
+  `extract_jira.py --modify <STORY> --add-comment` with the bug URL — the
+  `see_also` link is one-directional, so the JIRA backlink is manual. Write
+  the JIRA comment in Markdown link syntax (`[Bug 2050308](https://bugzilla.mozilla.org/show_bug.cgi?id=2050308)`)
+  so the skill's Markdown→ADF conversion renders it as a clickable link, not a
+  bare URL.
+
+Example for the 82415f4 rollout:
+[Bug 2050308](https://bugzilla.mozilla.org/show_bug.cgi?id=2050308) ↔
+[RELOPS-2453](https://mozilla-hub.atlassian.net/browse/RELOPS-2453).
+
 ## Phase 1 — Trigger the build
 
 Pick the workflow based on cloud + image kind. Files live in
