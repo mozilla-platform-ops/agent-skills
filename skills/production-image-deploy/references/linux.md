@@ -104,7 +104,9 @@ deploymentId table to provide. Stick to:
 
 1. **Summary** — which Ubuntu families bumped to which date, plus any
    security/stability driver (CVE, RELOPS ticket).
-2. **Build provenance** — link the worker-images run.
+2. **Build provenance** — link the worker-images run, build SHA, and at least
+   one production SBOM from the rollout. For a full Ubuntu 24.04 rollout, use
+   the Wayland AMD64 SBOM as the primary link.
 3. **Related** — Jira/GitHub link.
 
 PR #968 (`feat(gcp): Update Ubuntu 24.04 images with copy-fail patch`) is

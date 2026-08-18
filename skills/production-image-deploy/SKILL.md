@@ -3,9 +3,9 @@ name: production-image-deploy
 description: |
   Deploy Firefox CI production worker images by coordinating worker-images
   GitHub Actions builds, fxci-config worker-images.yml bumps, Taskcluster
-  integration validation, Slack changelogs, and post-merge pool health
-  checks. Use when rolling out ronin_puppet, generic-worker, Taskcluster
-  cloud-worker, Windows Azure SIG, or Linux GCP image changes to production.
+  validation, Slack changelogs, post-merge health checks, and Bugzilla
+  deployment records. Use for production rollouts of ronin_puppet,
+  generic-worker, cloud-worker, Windows Azure SIG, or Linux GCP changes.
   DO NOT USE FOR build-only requests; use worker-image-build.
 ---
 
@@ -14,7 +14,8 @@ description: |
 End-to-end skill for promoting a new worker image into Firefox CI: trigger
 the build in `mozilla-platform-ops/worker-images`, verify the published
 artifact, bump `worker-images.yml` in `mozilla-releng/fxci-config`, open the
-rollout PR, announce it, and confirm the pools roll over.
+rollout PR, announce it, confirm the pools roll over, and record the completed
+Windows deployment in Bugzilla.
 
 | Repo | Role |
 |---|---|
@@ -24,7 +25,8 @@ rollout PR, announce it, and confirm the pools roll over.
 
 Treat the phases below as a checklist. Skip phase 1 if the user already
 triggered the build — verify what's published before editing fxci-config.
-Phase 5 (post-merge health) always happens.
+Phase 5 (post-merge health) always happens. Phase 6 applies to Windows
+production rollouts.
 
 ## Validation surfaces
 
@@ -37,21 +39,19 @@ and configs rebuilt.
 | 2 — fxci-config PR | Comment `/taskcluster integration` on the bump PR; runs every `integration`-tagged task against the pool+image binding in the PR's diff. Reports via `checks-v1`. | Carries the load for whatever surface 1 skips. Wired up in phase 3. |
 | 3 — mach try | Fallback via the `os-integrations` skill when 1 and 2 don't cover what you need (perf/talos/browsertime, broader candidate iteration, reproducing a specific failure). | On demand. Watch in Treeherder; new Tier-1 reds → fix in ronin_puppet and rebuild. |
 
-## Phase 0 — Open the tracking issues
+## Phase 0 — Open the RELOPS tracking Story
 
-Every production Windows rollout gets a RELOPS tracking **Story** (JIRA) plus
-a companion **Bugzilla** bug. File both before starting; run descriptions
-through `/humanizer`. Mechanics and field values: `references/tracking.md`.
+Every production Windows rollout gets a RELOPS tracking **Story** before work
+starts. Run its description through `/humanizer`. Mechanics and field values:
+`references/tracking.md`.
 
 In short:
 
-- **JIRA Story** (`jira` skill): summary `Update Windows worker images to
-  <ver> / <25h2_ver>`, filed under the current `[YYYY HX] Win 10/11 Support
-  and Deployments` epic. Link each underlying ronin_puppet RELOPS ticket from
-  the commit range. Drive `Backlog → In Progress → Done` across the rollout.
-- **Bugzilla bug** (`bugzilla` skill): `Infrastructure & Operations` /
-  `RelOps: Windows OS`, type `task`, version `other`. Cross-link both ways
-  with the Story.
+- **JIRA Story** (`jira` skill): use a summary that matches the planned scope,
+  file it under the current `[YYYY HX] Win 10/11 Support and Deployments`
+  epic, and link each underlying ronin_puppet RELOPS ticket from the commit
+  range. Drive `Backlog → In Progress` when work starts. Mark it Done only
+  after phases 5 and 6 finish.
 
 Reference the Story (`RELOPS-####`) in the worker-images and fxci-config PRs.
 
@@ -157,7 +157,9 @@ For each rebuilt config:
 3. Cross-check the baked-in `deploymentId` via the gallery version tags or
    the SBOM (`sboms/<config>-<version>.md`, UTF-16LE).
 4. **(Linux)** Capture the published GCE image name (with date suffix) from
-   the deploy step's log — that's what goes into fxci-config.
+   the deploy step's log — that's what goes into fxci-config. Confirm the
+   matching production SBOM landed in `worker-images/sboms/`, and save its
+   `blob/main` URL for the fxci-config PR and Slack changelog.
 
 Detailed verify recipes, SBOM parsing, and missing-SBOM recovery:
 `references/windows.md` and `references/linux.md`.
@@ -179,6 +181,9 @@ source of mistakes.
   Related links. Skip per-image bump tables and test-plan sections. Titles,
   body skeletons, and worked examples: `references/pr-templates.md`. Open with
   `gh pr create --body-file` (never a HEREDOC — it mangles backticks).
+- **Ubuntu PRs:** include at least one direct `worker-images/blob/main/sboms/`
+  link in Build provenance. Use an SBOM from the images in the rollout; for a
+  full Ubuntu 24.04 rollout, use the Wayland AMD64 SBOM as the primary link.
 - **Partial rollout** (N of M published): drop the deferred entries via a new
   commit (don't amend), retitle, and open a follow-up once they publish.
 - **Staging:** skip `tc-admin diff` for a pure version bump; stage first if
@@ -199,8 +204,11 @@ After the fxci-config PR **merges** (SBOM URLs 404 until then), post a
 plain-text changelog: a one-line "we've updated …" header, 2–4 bullets of
 what changed (from the ronin_puppet range + gw/OS versions seen in phase 2),
 and the merged PR link plus one SBOM release-notes URL per rebuilt config.
-Trim the URL list to only what moved. Template, friendly-name mapping, and the
-dual HTML+plain-text clipboard recipe: `references/slack-changelog.md`.
+Match the header and update label to the actual rollout scope; don't say "all
+Windows images" for a single-image rollout. Trim the URL list to only what
+moved. Ubuntu changelogs must include at least one direct SBOM URL. Templates,
+friendly-name mapping, and the dual HTML+plain-text clipboard recipe:
+`references/slack-changelog.md`.
 
 ## Phase 5 — Post-merge worker-pool health check
 
@@ -224,6 +232,21 @@ then per bumped pool:
 Queries, escalation thresholds, idle-pool handling, and the rollback recipe:
 `references/post-merge-health.md`.
 
+## Phase 6 — File the Bugzilla deployment record (Windows)
+
+After the merged deployment passes phase 5, use the `bugzilla` skill to file a
+Bugzilla **task** that records exactly what reached production. Scope its title
+and description to the images and pools that changed. Include the image
+version, ronin_puppet `deploymentId`, worker-images build and PR, merged
+fxci-config PR, validation links, and RELOPS Story.
+
+Use `Infrastructure & Operations` / `RelOps: Windows OS`, version `other`, and
+cross-link it with the RELOPS Story. Resolve the deployment task as FIXED once
+the links are complete. If a later regression came from the rollout, put this
+deployment bug in the regression bug's **Regressed by** field; Bugzilla then
+lists that issue under the deployment bug's **Regressions** field. Field values,
+commands, scope examples, and Bug 2050308: `references/tracking.md`.
+
 ## What this skill does NOT do
 
 - Does not push commits to ronin_puppet or worker-images — image content
@@ -241,8 +264,8 @@ Queries, escalation thresholds, idle-pool handling, and the rollback recipe:
 - `references/fxci-config-mapping.md` — config name → `worker-images.yml` key
   mapping, including legacy `ronin_*` Windows naming.
 - `references/pr-templates.md` — PR titles, branch names, body skeletons.
-- `references/tracking.md` — JIRA Story + Bugzilla bug field values and
-  cross-linking.
+- `references/tracking.md` — initial JIRA Story and final Bugzilla deployment
+  record, including field values and cross-linking.
 - `references/slack-changelog.md` — changelog template + friendly-name mapping
   + clipboard recipe.
 - `references/post-merge-health.md` — phase-5 `tc-logview`/Taskcluster queries,

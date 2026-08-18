@@ -6,13 +6,37 @@ copy-pasteable and link directly to the published artifacts — readers
 should not have to hunt through the merge commit to figure out what
 shipped.
 
+Match the first line and the update label to the scope that shipped. Say
+"all windows cloud images" only for a fleet rollout. For a partial rollout,
+name the OS, architecture, or pool family that changed. The June 2026 fleet
+post in `#relops` is the format model:
+https://mozilla.slack.com/archives/CNN462N2F/p1782336949311089
+
 Don't post until the fxci-config PR is **merged**. SBOM URLs below point
 to `worker-images/main` (after the SBOM-upload job committed); a draft
 changelog posted before merge will link to URLs that may still 404.
 
 ## Windows
 
-### Template
+### Single-image or pool-family template
+
+Use this for a partial rollout such as one Windows 11 25H2 image. Keep only the
+release-notes links for images that changed.
+
+```
+We've updated <scope> cloud workers. See changelog below:
+
+• Latest <scope> updates
+• <image, package, or worker change>
+• <VM SKU, disk, or infrastructure change, if applicable>
+Link to fxci-config PR https://github.com/mozilla-releng/fxci-config/pull/<PR_NUMBER>
+
+Release Notes:
+
+<friendly image name>: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/<config>-<V>.md
+```
+
+### Fleet template
 
 ```
 We've updated all windows cloud images. See changelog below:
@@ -64,6 +88,8 @@ version:
 
 ### Rules for trimming the list
 
+- **Match the wording to the deployment scope.** A single-image rollout must
+  not say that all Windows images changed.
 - **Only include configs that were actually rebuilt in this rollout.**
   If a hotfix only touched two configs, the changelog should list only
   those two.
@@ -165,9 +191,9 @@ auto-links bare URLs in either mode.
 
 ## Linux
 
-Linux currently has no SBOMs in `worker-images/sboms/`, so the
-changelog can't link per-image release notes. Use a shorter variant
-that points at the fxci-config PR plus the worker-images run:
+Ubuntu production workflows publish SBOMs in `worker-images/sboms/`. Include
+at least one direct SBOM link in every Ubuntu changelog. For a full rollout,
+include one release-notes link per rebuilt config.
 
 ```
 We've updated the Ubuntu 24.04 GCP worker images. See changelog below:
@@ -181,7 +207,15 @@ Latest linux updates
 Link to fxci-config PR https://github.com/mozilla-releng/fxci-config/pull/<PR_NUMBER>
 worker-images run: https://github.com/mozilla-platform-ops/worker-images/actions/runs/<RUN_ID>
 Updated images: <YYYY-MM-DD> builds for <list of fxci-config aliases>
+
+Release Notes:
+
+Ubuntu 24.04 Wayland AMD64: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-amd64-gui-googlecompute-<YYYY-MM-DD>.md
+Ubuntu 24.04 Headless AMD64 L1: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-amd64-headless-googlecompute-<YYYY-MM-DD>.md
+Ubuntu 24.04 Headless AMD64 L3: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l3-2404-amd64-headless-googlecompute-<YYYY-MM-DD>.md
+Ubuntu 24.04 Headless ARM64 L1: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-arm64-headless-googlecompute-<YYYY-MM-DD>.md
+Ubuntu 24.04 Headless ARM64 L3: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l3-2404-arm64-headless-googlecompute-<YYYY-MM-DD>.md
 ```
 
-If/when Linux gets SBOM emission, fall back to the Windows-style
-per-image link list.
+Trim the release-notes list to the images that moved. Verify each URL before
+posting.
