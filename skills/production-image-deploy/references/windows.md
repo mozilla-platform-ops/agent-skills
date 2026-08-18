@@ -1,5 +1,10 @@
 # Windows image deploy reference
 
+## Azure subscriptions
+
+- Untrusted: `"FXCI Azure DevTest Subscription"`
+- Trusted: `"Trusted FXCI Azure DevTest Subscription"`
+
 ## Where the version number comes from
 
 The "version" of a Windows image is an Azure Compute Gallery (Shared Image
@@ -33,6 +38,64 @@ lockstep so the fxci-config diff is one coherent step, but that's a
 convention, not a constraint of the gallery. Trusted variants
 (`config/trusted-*.yaml`) are tracked in their own gallery and bump
 independently of their untrusted twins.
+
+## Pre-flight: comparing Marketplace base image versions
+
+Microsoft republishes Marketplace images on its own cadence and the new
+image can regress something puppet relies on. Before dispatching,
+compare the latest available Marketplace version against the
+`OS Version` line in the previous successful SBOM for that config.
+
+Publisher / offer / sku come from the `marketplace_image:` block in
+`worker-images/config/<config>.yaml`. Example for `win11-a64-25h2-*`:
+
+```bash
+az vm image list \
+  --publisher MicrosoftWindowsDesktop \
+  --offer windows-11 --sku win11-25h2-ent \
+  --all \
+  --query "[?starts_with(version,'26100')].{version:version}" \
+  -o table
+```
+
+If the latest version is newer than the SBOM's `OS Version`, expect
+potential regressions. The May 7 republish of `win11-24h2-ent` ARM64
+moved the OS build from `26100.8246` to `26100.8457` and broke NetFx3
+install intermittently — see "Pinning to last known good" below.
+
+### Pinning to last known good
+
+If a republished Marketplace image is causing build failures, pin
+the config's base image version to the last known-good version in
+`worker-images/config/<config>.yaml`:
+
+```yaml
+marketplace_image:
+  publisher: MicrosoftWindowsDesktop
+  offer: windows-11
+  sku: win11-25h2-ent
+  version: 26100.8246.250407  # pinned; was `latest`
+```
+
+The exact version string is whatever the `az vm image list` query
+above returned for the known-good build. Land the pin as a small
+worker-images PR, then re-dispatch.
+
+## The `azure.build_location` knob
+
+Per-config override for the Azure region the Packer build runs in.
+The wrapper script defaults to `Central US`; setting
+`azure.build_location: <region>` (a single string like `westus2`)
+overrides it. Useful when a per-region Microsoft Update CDN issue
+is suspected — switch regions and retry. The field lives alongside
+the other `azure:` keys in `config/<config>.yaml`.
+
+Confirm Packer honored the override by listing live `pkrvm*` VMs in
+the target region:
+
+```bash
+az vm list --query "[?location=='<region>' && starts_with(name, 'pkrvm')]" -o table
+```
 
 ## Where the ronin_puppet commit comes from
 
@@ -143,3 +206,59 @@ audit.
   24H2 family and 25H2 family can be at different prior `deploymentId`s.
   Compute the compare range from each family's prior baseline; if they
   resolve to the same range, collapse to one table.
+
+## Troubleshooting: NetFx3 / DXSDK install on fresh ARM64 VMs
+
+The puppet class `dxsdk_jun10::install_net_framework3.5` calls
+`Enable-WindowsOptionalFeature -Online -FeatureName NetFx3 -All` and fails
+intermittently on fresh ARM64 VMs:
+
+- The DISM call returns non-zero; the feature stays in
+  `DisabledWithPayloadRemoved`.
+- Packer's `Start-AzRoninPuppet` step fails with `Error code 6`.
+- Failures cluster on certain configs / OS versions and on specific reruns
+  — partly per-OS-build, partly random.
+
+Recovery, in escalating order:
+
+1. Rerun the failed config up to ~3 times. The failure flips on retry often
+   enough that this is worth trying first.
+2. Pin the Marketplace base image `version` in the failing config YAML to
+   the last known-good version (see "Pinning to last known good" above).
+3. Source the Win11 ARM64 NetFx3 SxS cab from a Features-on-Demand ISO,
+   stage it in the `roninpuppetassets` blob, and patch
+   `dxsdk_jun10::install_net_framework3.5` in ronin_puppet to use
+   `-Source <local-path> -LimitAccess` so DISM never fetches from Windows
+   Update.
+
+Cap step (1) at ~3 attempts before escalating. One config burning 7 reruns
+at ~95 min on Standard_E8pds_v5 is ~16 hours of ARM64 compute for no new
+signal — escalate sooner.
+
+## Debugging a failing build from the live VM
+
+The GitHub Actions log only shows what Packer's WinRM session captures. It
+lags in-VM activity by 25+ minutes for slow DISM calls and often omits the
+real HRESULT. The authoritative source is the in-VM puppet/CBS/DISM logs
+while the build VM still exists.
+
+While the build VM is still running (before `cleanup_provisioner` fires),
+use `az vm run-command invoke` against the transient packer resource group
+(named like `<CONFIG>-<DEPLOYMENT_ID>-<N>-PKRTMP`) to run a PowerShell
+payload that reads logs and process state. Locate the VM with `az vm list`.
+Hand off the actual PowerShell to a `helper` agent — the right script
+depends on what's being investigated.
+
+Things worth knowing before the helper runs:
+
+- Puppet's log path on these images is non-obvious. Start with
+  `C:\Windows\Logs\DISM\dism.log` and `C:\Windows\Logs\CBS\CBS.log` — both
+  are reliable for Windows-feature install failures.
+- DISM at `/LogLevel:4` is verbose enough to surface HRESULTs but slow;
+  expect 20+ minutes before a failing DISM call returns.
+- Spot-check anything an agent quotes from a specific path — investigators
+  can confabulate file content; verify by re-reading from the claimed
+  location before acting on it.
+- The transient packer resource group is deleted ~60s after the build
+  state transitions in GHA (success or failure). Capture anything you need
+  before the run completes; otherwise re-dispatch and re-investigate.

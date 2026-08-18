@@ -11,6 +11,33 @@ re-evaluates pool config on its own cadence and existing VMs continue
 running until they terminate normally; the rollout is gradual, not
 instantaneous.
 
+## Read this first: deploymentId is not a typed field
+
+The ronin_puppet `deploymentId` is **not** projected as a typed
+worker-manager log field. A query like
+
+```bash
+tc-logview query -e fx-ci --service worker-manager \
+  --filter '"<deploymentId>"' --since 30m
+```
+
+returns 0 entries even when workers ARE running with the new image.
+Don't burn time on substring filters as your primary signal — they
+produce false negatives. Use these checks instead:
+
+- `worker-error` events for the affected pool over the last 30 min
+  (typed field `workerPoolId`) — should be flat.
+- Pending counts via `taskcluster api queue pendingTasks <pool>` —
+  should be at or near steady-state.
+- The Taskcluster UI worker-type page (linked below) — shows worker
+  count and recent task throughput at a glance.
+
+The "confirm the deploymentId" recipe below reads the raw event
+payload (where the tag actually lives) instead of substring-filtering
+typed fields. Use that when you need to confirm a specific
+deploymentId; use the signals above when you just need "is the
+rollout healthy?".
+
 ## Identifying the pools to check
 
 `worker-images.yml` bindings flow into `worker-pools.yml` aliases.
@@ -21,11 +48,48 @@ defined. Pull them out with:
 
 ```bash
 cd ~/github_moz/fxci-config
-grep -nE "pool_id|workerType" worker-pools.yml | grep -B1 <alias>
+grep -n <alias> worker-pools.yml
 ```
+
+Read the 1–2 surrounding lines for the `<provisioner>/<workerType>`
+pool ID — the YAML structure varies, but the pool ID is always
+adjacent to the alias reference.
 
 Phase 3's fxci-config diff is the authoritative list of which aliases
 moved.
+
+## Scope checks to after the merge, and account for idle pools
+
+Two traps that produce a false "healthy":
+
+1. **Scope to the merge timestamp, not a rolling window.** Get the merge
+   time (`gh pr view <PR> --repo mozilla-releng/fxci-config --json mergedAt`)
+   and query `--from <merge-time>`, not `--since 1h/2h`. A rolling window
+   spans the pre-merge period and counts old-image workers, so the pool
+   looks busy and healthy on stale data. Only workers that reach `running`
+   **after** the merge are on the new image.
+
+   ```bash
+   tc-logview query -e fx-ci --type worker-running --from <merge-time> \
+     --json --limit 1000 \
+     | jq -r 'select(.workerPoolId|test("win10|win11|win2022")) | .workerPoolId' \
+     | sort | uniq -c
+   tc-logview query -e fx-ci --type worker-error --from <merge-time> --json --limit 1000 | ...
+   ```
+
+2. **Idle pools (0 pending) show no new workers.** A pool with no demand
+   provisions nothing post-merge, so its new image is *configured* (launch
+   config verified, see below) but **not yet observed booting**. Don't count
+   those as confirmed. This bites hardest on low-traffic, previously-
+   problematic pools (e.g. the ARM64 builders): a busy test pool confirms
+   itself within minutes, but a quiet builder can sit idle for hours.
+
+   For an idle pool you need to confirm, either wait for organic demand or
+   push a task onto it (a `mach try` job targeting that worker type) so a
+   fresh worker provisions on the new image. **Do not move the tracking
+   Story to Done until every pool you care about has had a post-merge worker
+   reach `running` with no worker-error** — a verified launch config alone
+   is necessary but not sufficient.
 
 ## Confirming the new deploymentId is in use (Windows)
 

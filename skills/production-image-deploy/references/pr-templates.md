@@ -72,13 +72,21 @@ named for a fix rather than a date).
 - Updates the Ubuntu 24.04 GCP worker image references to the `<YYYY-MM-DD>` builds for <list of touched fxci-config aliases>.
 - <Optional 1-line driver: CVE, RELOPS ticket, "follow-up to #<n>", etc.>
 
+## Build provenance
+
+- worker-images run: https://github.com/mozilla-platform-ops/worker-images/actions/runs/<RUN_ID>
+- worker-images SHA: `<SHA>`
+- [Ubuntu 24.04 <flavor> SBOM](https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/<SBOM_FILENAME>.md)
+
 ## Related
 
 - [<TICKET>](https://mozilla-hub.atlassian.net/browse/<TICKET>)
 ```
 
 Linux PRs don't carry a ronin_puppet commit table because Linux images
-don't bake a ronin_puppet `deploymentId`.
+don't bake a ronin_puppet `deploymentId`. They do carry at least one direct
+SBOM link. For a full Ubuntu 24.04 rollout, use the Wayland AMD64 SBOM as the
+primary link.
 
 ## House style reminders
 
