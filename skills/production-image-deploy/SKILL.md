@@ -201,13 +201,16 @@ source of mistakes.
 ## Phase 4 — Announce in Slack
 
 After the fxci-config PR **merges** (SBOM URLs 404 until then), post a
-plain-text changelog: a one-line "we've updated …" header, 2–4 bullets of
+compact changelog: a one-line "we've updated …" header, 2–4 bullets of
 what changed (from the ronin_puppet range + gw/OS versions seen in phase 2),
 and the merged PR link plus one SBOM release-notes URL per rebuilt config.
 Match the header and update label to the actual rollout scope; don't say "all
 Windows images" for a single-image rollout. Trim the URL list to only what
-moved. Ubuntu changelogs must include at least one direct SBOM URL. Templates,
-friendly-name mapping, and the dual HTML+plain-text clipboard recipe:
+moved. Ubuntu changelogs must include at least one direct SBOM URL. When you
+send through the Slack connector, use a named Markdown link for every URL,
+then read the sent message back and verify each link label and target.
+Bare URLs can absorb the next line during connector conversion. Templates,
+verification steps, and the manual clipboard recipe:
 `references/slack-changelog.md`.
 
 ## Phase 5 — Post-merge worker-pool health check

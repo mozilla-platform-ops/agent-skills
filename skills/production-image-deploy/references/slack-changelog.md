@@ -113,7 +113,16 @@ version:
 ### Producing the post
 
 Resolve every `<V>` and `<PR_NUMBER>` placeholder before sending.
-Leave URLs bare; don't use Slack's "code block" formatting.
+
+Choose the instructions for the delivery method:
+
+- **Slack connector:** use a named Markdown link (`[label](URL)`) for every
+  URL. Do not send the bare-URL templates directly. The connector can absorb
+  a following line into a bare URL and create a 404. After sending, read the
+  message back with `slack_read_channel` and verify each link label and target.
+  Report success only after this read-back check passes.
+- **Manual paste:** leave URLs bare and use the HTML plus plain-text clipboard
+  recipe below. Do not put the changelog in a Slack code block.
 
 ### Getting bullets to render
 
@@ -193,28 +202,27 @@ auto-links bare URLs in either mode.
 
 Ubuntu production workflows publish SBOMs in `worker-images/sboms/`. Include
 at least one direct SBOM link in every Ubuntu changelog. For a full rollout,
-include one release-notes link per rebuilt config.
+include one release-notes link per rebuilt config. This template is safe for
+`slack_send_message` because each URL has an explicit Markdown label:
 
 ```
-We've updated the Ubuntu 24.04 GCP worker images. See changelog below:
+We've updated the Ubuntu 24.04 GCP worker images.
 
+**Latest Linux updates**
+- <top-line driver, e.g. "May 2026 patch level + Taskcluster 99.2.1">
+- <second item, e.g. "Headless, ARM64, and Wayland images">
 
-Latest linux updates
-<bullet — top-line driver, e.g. "May 2026 patch level + 99.2.1 generic worker">
-<bullet — any second item, e.g. "Headless + ARM64 + Wayland flavors">
+**Deployment**
+- [fxci-config PR #<PR_NUMBER>](https://github.com/mozilla-releng/fxci-config/pull/<PR_NUMBER>)
+- [worker-images run <RUN_ID>](https://github.com/mozilla-platform-ops/worker-images/actions/runs/<RUN_ID>)
+- <YYYY-MM-DD> builds for <list of fxci-config aliases>
 
-
-Link to fxci-config PR https://github.com/mozilla-releng/fxci-config/pull/<PR_NUMBER>
-worker-images run: https://github.com/mozilla-platform-ops/worker-images/actions/runs/<RUN_ID>
-Updated images: <YYYY-MM-DD> builds for <list of fxci-config aliases>
-
-Release Notes:
-
-Ubuntu 24.04 Wayland AMD64: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-amd64-gui-googlecompute-<YYYY-MM-DD>.md
-Ubuntu 24.04 Headless AMD64 L1: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-amd64-headless-googlecompute-<YYYY-MM-DD>.md
-Ubuntu 24.04 Headless AMD64 L3: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l3-2404-amd64-headless-googlecompute-<YYYY-MM-DD>.md
-Ubuntu 24.04 Headless ARM64 L1: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-arm64-headless-googlecompute-<YYYY-MM-DD>.md
-Ubuntu 24.04 Headless ARM64 L3: https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l3-2404-arm64-headless-googlecompute-<YYYY-MM-DD>.md
+**Release notes**
+- [Ubuntu 24.04 Wayland AMD64](https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-amd64-gui-googlecompute-<YYYY-MM-DD>.md)
+- [Ubuntu 24.04 Headless AMD64 L1](https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-amd64-headless-googlecompute-<YYYY-MM-DD>.md)
+- [Ubuntu 24.04 Headless AMD64 L3](https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l3-2404-amd64-headless-googlecompute-<YYYY-MM-DD>.md)
+- [Ubuntu 24.04 Headless ARM64 L1](https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l1-2404-arm64-headless-googlecompute-<YYYY-MM-DD>.md)
+- [Ubuntu 24.04 Headless ARM64 L3](https://github.com/mozilla-platform-ops/worker-images/blob/main/sboms/gw-fxci-gcp-l3-2404-arm64-headless-googlecompute-<YYYY-MM-DD>.md)
 ```
 
 Trim the release-notes list to the images that moved. Verify each URL before
