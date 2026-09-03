@@ -37,7 +37,31 @@ and configs rebuilt.
 |---|---|---|
 | 1 — in-build | Azure non-trusted workflows auto-chain `os-integration.yml` after `packer`; results show as `OS Integration Tests - <config>` jobs in the same run. | Skips all `win2022*`, all trusted builds, all Linux, and (alpha-parallel only) `win11-a64-*-builder`. |
 | 2 — fxci-config PR | Comment `/taskcluster integration` on the bump PR; runs every `integration`-tagged task against the pool+image binding in the PR's diff. Reports via `checks-v1`. | Carries the load for whatever surface 1 skips. Wired up in phase 3. |
-| 3 — mach try | Fallback via the `os-integrations` skill when 1 and 2 don't cover what you need (perf/talos/browsertime, broader candidate iteration, reproducing a specific failure). | On demand. Watch in Treeherder; new Tier-1 reds → fix in ronin_puppet and rebuild. |
+| 3 — mach try | Fallback via the `os-integrations` skill when 1 and 2 don't cover what you need (perf/talos/browsertime, broader candidate iteration, reproducing a specific failure). | On demand. Watch in Treeherder. A Tier-1 failure that occurs only on the candidate blocks the rollout. |
+
+### Failed-check decision
+
+A clean validation run is preferred. It is not required when every remaining
+failure is a confirmed, pre-existing Gecko intermittent. A failed check is safe
+to accept only when all these conditions are true:
+
+1. The same test, variant, platform, signature, and failure mode occur on the
+   current production image. Prefer a control task from the same Gecko
+   revision. Otherwise, use a recent production example and established
+   cross-revision history.
+2. Treeherder classifies the production failure as intermittent and links a
+   Gecko or test-harness Bugzilla bug, or an equivalent investigation is
+   complete.
+3. The candidate does not increase the failure rate or severity, and it does
+   not affect more tests.
+4. No remaining failure is unique to the candidate. Do not accept image setup,
+   provisioning, worker-start, disk-health, or package-install failures.
+
+Record the candidate task, current-production control, Bugzilla bug,
+image and worker versions, and comparison in the PR description or a linked
+report. Do not rerun only to make a confirmed Gecko intermittent pass. Merge
+and continue to phase 5 when all remaining failures meet these conditions.
+Otherwise, stop the rollout.
 
 ## Phase 0 — Open the RELOPS tracking Story
 
@@ -94,10 +118,10 @@ Pick the workflow by cloud + image kind. Files live in
 
 ### Alpha-first sequence (Windows)
 
-The expected order for a ronin_puppet bump is **alpha then production**, gated
-on the alpha builds' surface-1 os-integration passing. Dispatch
-`FXCI - Azure Alpha Parallel Images`, confirm its `OS Integration Tests`
-jobs are green, then dispatch the prod parallel workflow.
+The expected order for a ronin_puppet bump is **alpha then production**. The
+alpha builds' surface-1 os-integration gates the production build. Dispatch
+`FXCI - Azure Alpha Parallel Images`, then dispatch the prod parallel workflow
+when the jobs are green or all failures meet the failed-check decision above.
 
 Caveat: alpha configs don't auto-track master — several pin `sourceBranch` to
 a relops feature branch with `deploymentId: NA`. To validate a *master*
@@ -193,21 +217,26 @@ source of mistakes.
   gh pr comment <PR_NUMBER> --repo mozilla-releng/fxci-config --body '/taskcluster integration'
   ```
   Author must be a collaborator; only `/taskcluster integration` fires for
-  image-bump PRs. Treat new reds as a stop sign; intermittents are noted.
+  image-bump PRs. Each red stops the rollout until it is triaged. A confirmed
+  Gecko intermittent can remain red under the failed-check decision above.
 - **Merge:** request the reviewers from recent bump PRs (#955/#968/#982);
-  squash auto-merge is the default once green — but don't enable it before the
-  integration checks start reporting.
+  squash auto-merge is the default once validation permits it — but don't
+  enable it before the integration checks start reporting. A clean rerun is
+  not required after all failed checks meet the failed-check decision above.
 
 ## Phase 4 — Announce in Slack
 
 After the fxci-config PR **merges** (SBOM URLs 404 until then), post a
-plain-text changelog: a one-line "we've updated …" header, 2–4 bullets of
+compact changelog: a one-line "we've updated …" header, 2–4 bullets of
 what changed (from the ronin_puppet range + gw/OS versions seen in phase 2),
 and the merged PR link plus one SBOM release-notes URL per rebuilt config.
 Match the header and update label to the actual rollout scope; don't say "all
 Windows images" for a single-image rollout. Trim the URL list to only what
-moved. Ubuntu changelogs must include at least one direct SBOM URL. Templates,
-friendly-name mapping, and the dual HTML+plain-text clipboard recipe:
+moved. Ubuntu changelogs must include at least one direct SBOM URL. When you
+send through the Slack connector, use a named Markdown link for every URL,
+then read the sent message back and verify each link label and target.
+Bare URLs can absorb the next line during connector conversion. Templates,
+verification steps, and the manual clipboard recipe:
 `references/slack-changelog.md`.
 
 ## Phase 5 — Post-merge worker-pool health check
@@ -238,7 +267,8 @@ After the merged deployment passes phase 5, use the `bugzilla` skill to file a
 Bugzilla **task** that records exactly what reached production. Scope its title
 and description to the images and pools that changed. Include the image
 version, ronin_puppet `deploymentId`, worker-images build and PR, merged
-fxci-config PR, validation links, and RELOPS Story.
+fxci-config PR, validation links, accepted Gecko intermittent bugs, and RELOPS
+Story.
 
 Use `Infrastructure & Operations` / `RelOps: Windows OS`, version `other`, and
 cross-link it with the RELOPS Story. Resolve the deployment task as FIXED once
