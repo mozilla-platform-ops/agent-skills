@@ -23,6 +23,7 @@ npx skills add mozilla-platform-ops/agent-skills/<skill-name>
 | [production-image-deploy](skills/production-image-deploy/) | Deploy a Firefox CI worker image end-to-end: trigger the worker-images Action build, verify the published artifact, then bump `worker-images.yml` in fxci-config and open the rollout PR. Covers Windows (Azure SIG, semver-versioned) and Linux (GCP, date-stamped images). |
 | [queue-diagnosis](skills/queue-diagnosis/) | Diagnose large Taskcluster worker-pool queues by combining live Taskcluster pool state with Redash/BigQuery demand analysis. Produces a supply-side, demand-side, mixed, or inconclusive verdict with supporting evidence. |
 | [redash](skills/redash/) | Query Mozilla's Redash (sql.telemetry.mozilla.org) for Firefox telemetry and FXCI task data. Covers OS version distribution, DAU/MAU, architecture breakdown, worker-pool queue time, and task-level CI analysis. Requires only a Redash API key. |
+| [win-hw-troubleshooting](skills/win-hw-troubleshooting/) | Triage Firefox CI Windows hardware fleet issues (NUC13 / MDC1 / `releng-hardware/win11-64-24h2-hw*`). Covers PSU degradation detection via fleetbench, Kernel-Processor-Power event analysis, WdFilter / Defender Tamper-Protection mechanics, the perf-debug / alpha / main pool topology, and the hardware-vs-code-vs-environment disambiguation playbook for Speedometer 3 regressions. |
 
 ## Adding New Skills
 
