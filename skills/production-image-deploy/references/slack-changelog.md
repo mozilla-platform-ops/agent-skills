@@ -1,7 +1,13 @@
 # Slack changelog
 
-Use `#relops` (`CNN462N2F`) unless the user specifies another channel. Do not
-ask the user to supply this known destination.
+Send the same changelog to both channels unless the user changes the
+destinations:
+
+- [#relops](https://mozilla.enterprise.slack.com/archives/CNN462N2F) (`CNN462N2F`)
+- [#firefox-ci-proj](https://mozilla.enterprise.slack.com/archives/C030SPMMYQN) (`C030SPMMYQN`)
+
+Do not ask the user to supply these known destinations. For clipboard
+delivery, state that the message is ready to paste into both channels.
 
 Use this September 2026 post as the format example:
 https://mozilla.slack.com/archives/CNN462N2F/p1789394207903229

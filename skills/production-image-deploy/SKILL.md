@@ -200,8 +200,8 @@ source of mistakes.
 
 ## Phase 4 — Announce in Slack
 
-After the fxci-config PR **merges**, prepare the changelog for `#relops`
-(`CNN462N2F`). Use the September 2026 post as the format example:
+After the fxci-config PR **merges**, prepare the same changelog for both
+`#relops` (`CNN462N2F`) and `#firefox-ci-proj` (`C030SPMMYQN`). Use the September 2026 post as the format example:
 https://mozilla.slack.com/archives/CNN462N2F/p1789394207903229
 
 Use a short opening, change bullets, a `Deployment` section with a named PR
@@ -214,8 +214,8 @@ the exact layout and the HTML + plain-text clipboard recipe. Use rich text
 for clipboard delivery so Slack retains lists, bold text, and named links.
 Do not substitute a draft with bare URLs. If a connector cannot preserve or
 edit that format, copy the correctly formatted message to the clipboard and
-state that it is ready to paste. Do not ask for the channel; it is `#relops`
-unless the user specifies another destination. Report whether the message
+state that it is ready to paste. Use both channels unless the user changes the destinations. Do not ask
+for these known channel names. Report whether the message
 was sent, saved as a draft, or copied to the clipboard.
 
 ## Phase 5 — Post-merge worker-pool health check
