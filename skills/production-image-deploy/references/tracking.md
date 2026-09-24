@@ -42,7 +42,8 @@ and fxci-config PRs.
 RELOPS tracks the work plan in JIRA. After deployment, file a Bugzilla task so
 the result appears in the BMO RelOps queue and later regressions can identify
 the deployment that caused them. Use the `bugzilla` skill
-(`scripts/bz.py create`) only after the merged rollout passes phase 5.
+(`scripts/bz.py create`) after the merged rollout passes phase 5 by default.
+If the user requests an earlier tracking bug, use the pending-status rule below.
 
 - **Product / Component:** `Infrastructure & Operations` / `RelOps: Windows OS`
   (not the `create-image-regression` default of `Infrastructure & Release
@@ -55,15 +56,16 @@ the deployment that caused them. Use the `bugzilla` skill
     (ronin_puppet 82415f4)`.
   - Partial rollout: `Update Windows 11 25H2 production workers to image
     1.0.6 and Standard_F8alds_v7`.
-- **Description:** put the Story URL at the top, then record the exact image
-  and pool scope, version and ronin_puppet `deploymentId`, worker-images build
-  and PR, merged fxci-config PR, and validation results. Include only images
-  that reached production. **Write every reference as a full URL** — BMO
-  comments are plain text and only auto-link bare URLs and `Bug ####`;
-  shorthand like `worker-images#817`, `fxci-config#1058`, or `RELOPS-2449`
-  stays unlinked. Get this right on the first post: BMO's REST API can't edit
-  comment 0 afterward (`PUT /bug/comment/{id}` returns 404), so a follow-up
-  comment is the only fix for a description with dead shorthand.
+- **Description:** follow the short comment-0 template below. Use one scope
+  sentence, two or three change bullets, the Puppet pin or Linux image date,
+  deployment and tracking URLs, and one status sentence. Keep image tables,
+  build logs, test results, and investigation history in the linked PR or
+  Story. Use full URLs and `Bug ####` for clickable references.
+- **Editing comment 0:** use BMO's `PUT /rest/editcomments/comment/<comment_id>`
+  with `{"new_comment": "<replacement text>"}` and an authenticated API key.
+  Get the numeric comment ID from `GET /rest/bug/<bug_id>/comment`; select
+  the comment whose `count` is `0`. The standard `/rest/bug/comment/<id>`
+  endpoint does not support this edit. Verify the returned text.
 - **Cross-link both ways:** `--see-also <RELOPS Story URL>` on the bug, then
   `extract_jira.py --modify <STORY> --add-comment` with the bug URL — the
   `see_also` link is one-directional, so the JIRA backlink is manual. Write the
@@ -71,12 +73,35 @@ the deployment that caused them. Use the `bugzilla` skill
   (`[Bug 2050308](https://bugzilla.mozilla.org/show_bug.cgi?id=2050308)`) so
   the skill's Markdown→ADF conversion renders a clickable link, not a bare URL.
 - **Close the deployment task:** assign it to yourself and resolve it as
-  `FIXED` after the cross-links are present. The task records a completed
-  deployment; it does not stay open as an umbrella.
+  `FIXED` after validation, phase-5 health checks, and cross-links are complete.
+  The task records a completed deployment; it does not stay open as an umbrella.
 - **Link later regressions:** on each issue caused by the rollout, set this
   deployment task in **Regressed by**. Bugzilla will show those issues in the
   deployment task's **Regressions** field. Do not link known failures that
   also occurred on the previous production image.
+
+### Short comment-0 template
+
+Use [Bug 2075244 comment 0](https://bugzilla.mozilla.org/show_bug.cgi?id=2075244#c0)
+as the format example. Replace placeholders with verified values and omit
+lines that do not apply to the rollout.
+
+```text
+Update Firefox CI <platforms> production images:
+
+- Taskcluster components: <old version> -> <new version>.
+- <Configuration change and related Bug number>.
+- Windows Puppet pin: <commit>. Linux images: <date>.
+
+Deployment: <full fxci-config PR URL>
+Tracking: <full RELOPS Story URL>
+
+<Current validation and post-merge health status>.
+```
+
+If the user requests the bug before health checks finish, say that validation
+and post-merge health checks are still in progress. Keep the bug open until
+those checks pass.
 
 Create with a description file so shell quoting cannot damage URLs or
 backticks:
@@ -96,7 +121,7 @@ uv run "$BZ" create \
   --see-also "https://mozilla-hub.atlassian.net/browse/RELOPS-####"
 ```
 
-After the JIRA backlink is present:
+After validation and phase-5 health checks pass and the JIRA backlink is present:
 
 ```bash
 uv run "$BZ" update <BUG_ID> --status RESOLVED --resolution FIXED
