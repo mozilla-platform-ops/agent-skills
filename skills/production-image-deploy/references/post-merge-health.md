@@ -218,3 +218,25 @@ produces a structured diagnosis. Don't duplicate that work inline here.
   pool drains itself within an hour or so under normal conditions.
 - Capture any unexpected findings in `~/moz_artifacts/` so future
   rollouts can spot the same pattern earlier.
+
+## Phase 5 — Post-merge worker-pool health check
+
+After merge, fxci-config's deploy CI propagates `worker-images.yml` to
+worker-manager and new workers should boot from the new image. Wait 15–30 min,
+then per bumped pool:
+
+1. **Confirm the new `deploymentId` (Windows) / dated image name (Linux)** on
+   freshly-provisioned workers via `tc-logview` `worker-running` events. The
+   `deploymentId` is **not** a typed field — a `--filter '"<id>"'` returns 0
+   even when it's live; read the raw payload instead.
+2. **Scope to the merge timestamp**, not a rolling `--since` window, and
+   account for idle pools: a pool with 0 pending provisions nothing post-merge,
+   so its image is configured but not yet observed booting. Don't mark the
+   Story Done until every pool you care about has had a post-merge worker reach
+   `running` with no `worker-error`.
+3. **Watch `worker-error`** by typed `workerPoolId`; a spike right after merge
+   usually means a bad image — be ready to roll back.
+4. If pending climbs, hand off to `queue-diagnosis` rather than triaging here.
+
+Queries, escalation thresholds, idle-pool handling, and the rollback recipe:
+`references/post-merge-health.md`.

@@ -96,3 +96,37 @@ primary link.
 - Don't co-author with Claude.
 - Run the user's `/humanizer` skill on multi-line commit messages and PR
   bodies if available.
+
+## Phase 3 — Bump fxci-config and open the PR
+
+`references/fxci-config-mapping.md` has the canonical mapping from
+worker-images config names to `worker-images.yml` keys — the most common
+source of mistakes.
+
+- **Branch** off `main`, named after the bump (`bump-windows-images-1.3.5-1.0.5`).
+- **Edit `worker-images.yml`:** for Windows change `version` + `deployment_id`
+  together; for Linux replace the full image string on the `fxci-level1-gcp`
+  (and `fxci-level3-gcp`) lines. Leave alpha pools and retired configs alone.
+- Run `uvx pre-commit run --files worker-images.yml`; stage by name; commit
+  `chore(azure): ...` (Windows) or `feat(gcp): ...` (Linux), ≤72 chars.
+- **PR body** stays tight — Summary, Build provenance (run URL + SHA), a
+  Windows-relevant ronin_puppet commit table with `[Full compare]` link, and
+  Related links. Skip per-image bump tables and test-plan sections. Titles,
+  body skeletons, and worked examples: `references/pr-templates.md`. Open with
+  `gh pr create --body-file` (never a HEREDOC — it mangles backticks).
+- **Ubuntu PRs:** include at least one direct `worker-images/blob/main/sboms/`
+  link in Build provenance. Use an SBOM from the images in the rollout; for a
+  full Ubuntu 24.04 rollout, use the Wayland AMD64 SBOM as the primary link.
+- **Partial rollout** (N of M published): drop the deferred entries via a new
+  commit (don't amend), retitle, and open a follow-up once they publish.
+- **Staging:** skip `tc-admin diff` for a pure version bump; stage first if
+  the PR also touches `worker-pools.yml` or scopes.
+- **Trigger integration** (surface 2) immediately after opening:
+  ```bash
+  gh pr comment <PR_NUMBER> --repo mozilla-releng/fxci-config --body '/taskcluster integration'
+  ```
+  Author must be a collaborator; only `/taskcluster integration` fires for
+  image-bump PRs. Treat new reds as a stop sign; intermittents are noted.
+- **Merge:** request the reviewers from recent bump PRs (#955/#968/#982);
+  squash auto-merge is the default once green — but don't enable it before the
+  integration checks start reporting.

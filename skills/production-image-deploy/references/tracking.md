@@ -130,3 +130,36 @@ uv run "$BZ" update <BUG_ID> --status RESOLVED --resolution FIXED
 Example for the completed 82415f4 rollout:
 [Bug 2050308](https://bugzilla.mozilla.org/show_bug.cgi?id=2050308) ↔
 [RELOPS-2453](https://mozilla-hub.atlassian.net/browse/RELOPS-2453).
+
+## Phase 0 — Open the RELOPS tracking Story
+
+Every production Windows rollout gets a RELOPS tracking **Story** before work
+starts. Run its description through `/humanizer`. Mechanics and field values:
+`references/tracking.md`.
+
+In short:
+
+- **JIRA Story** (`jira` skill): use a summary that matches the planned scope,
+  file it under the current `[YYYY HX] Win 10/11 Support and Deployments`
+  epic, and link each underlying ronin_puppet RELOPS ticket from the commit
+  range. Drive `Backlog → In Progress` when work starts. Mark it Done only
+  after phases 5 and 6 finish.
+
+Reference the Story (`RELOPS-####`) in the worker-images and fxci-config PRs.
+
+## Phase 6 — File the Bugzilla deployment record (Windows)
+
+After the merged deployment passes phase 5, use the `bugzilla` skill to file a
+Bugzilla **task** that records exactly what reached production. Scope its title
+and description to the images that changed. Keep comment 0 short: one scope
+sentence, two or three change bullets, the Puppet pin or Linux image date,
+the fxci-config PR and RELOPS Story URLs, and one status sentence. Use the
+template in `references/tracking.md`; keep build logs, image tables, and
+validation details in the linked PR or Story.
+
+Use `Infrastructure & Operations` / `RelOps: Windows OS`, version `other`, and
+cross-link it with the RELOPS Story. Resolve the deployment task as FIXED once
+validation, phase-5 health checks, and cross-links are complete. If a later regression came from the rollout, put this
+deployment bug in the regression bug's **Regressed by** field; Bugzilla then
+lists that issue under the deployment bug's **Regressions** field. Field values,
+commands, scope examples, and Bug 2050308: `references/tracking.md`.
