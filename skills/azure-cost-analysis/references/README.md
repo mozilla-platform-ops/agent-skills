@@ -19,16 +19,17 @@ Read these in priority order when investigating a cost anomaly:
 
 | Reference | Read when |
 |---|---|
-| `user-inputs.md` | **Read before starting.** What the user needs to provide depending on access level and investigation scope. |
-| `methodology.md` | **Read first when analyzing.** Daily cost vs cost/task signals, baseline selection, common pitfalls. |
-| `cost-dimensions.md` | You need to slice by SKU, region, or service in addition to worker-pool-id. |
-| `multi-subscription.md` | Investigating cost change across all 3 CI subs (FXCI DevTest, Trusted FXCI, TC Engineering). |
-| `cost-management-api.md` | API reference for the query endpoint. |
-| `taskcluster-task-counting.md` | Counting tasks per pool — TC API for one push, BigQuery for batch analysis. |
-| `fxci-config-lookup.md` | Verifying VM SKU/region/weight for a pool, checking git history for cost-relevant changes. |
-| `taskcluster-service-changes.md` | Checking TC service code (worker-manager, worker-scanner) for bugs/changes affecting cost. |
-| `azure-spot-pricing.md` | Investigating whether spot price changes contributed to a cost increase. |
-| `spot-evictions.md` | Investigating whether spot eviction rate changes contributed (broad cost/task increases). |
+| [user-inputs.md](user-inputs.md) | **Read before starting.** What the user needs to provide depending on access level and investigation scope. |
+| [methodology.md](methodology.md) | **Read first when analyzing.** Daily cost vs cost/task signals, baseline selection, common pitfalls. |
+| [cost-dimensions.md](cost-dimensions.md) | You need to slice by SKU, region, or service in addition to worker-pool-id. |
+| [multi-subscription.md](multi-subscription.md) | Investigating cost change across all 3 CI subs (FXCI DevTest, Trusted FXCI, TC Engineering). |
+| [cost-management-api.md](cost-management-api.md) | API reference for the query endpoint. |
+| [workflows.md](workflows.md) | Script flags, step-by-step diagnostic and monthly review workflows, example prompts. |
+| [taskcluster-task-counting.md](taskcluster-task-counting.md) | Counting tasks per pool — TC API for one push, BigQuery for batch analysis. |
+| [fxci-config-lookup.md](fxci-config-lookup.md) | Verifying VM SKU/region/weight for a pool, checking git history for cost-relevant changes. |
+| [taskcluster-service-changes.md](taskcluster-service-changes.md) | Checking TC service code (worker-manager, worker-scanner) for bugs/changes affecting cost. |
+| [azure-spot-pricing.md](azure-spot-pricing.md) | Investigating whether spot price changes contributed to a cost increase. |
+| [spot-evictions.md](spot-evictions.md) | Investigating whether spot eviction rate changes contributed (broad cost/task increases). |
 
 ## Quick start
 

@@ -138,3 +138,23 @@ Linux changes. Include the worker-images build link under `Deployment` and
 one named SBOM link per rebuilt config under `Release notes`. For a full
 Ubuntu 24.04 rollout, include the Wayland AMD64 SBOM. The clipboard recipe
 uses the same lists and named links; replace its Windows-specific text.
+
+## Phase 4 — Announce in Slack
+
+After the fxci-config PR **merges**, prepare the same changelog for both
+`#relops` (`CNN462N2F`) and `#firefox-ci-proj` (`C030SPMMYQN`). Use the September 2026 post as the format example:
+https://mozilla.slack.com/archives/CNN462N2F/p1789394207903229
+
+Use a short opening, change bullets, a `Deployment` section with a named PR
+link, and a `Release notes` section with one named link per rebuilt image.
+Bold the old-to-new package version in its bullet. Match the opening to the
+actual rollout scope. Verify each SBOM link before use.
+
+Read `references/slack-changelog.md` before preparing the message. It contains
+the exact layout and the HTML + plain-text clipboard recipe. Use rich text
+for clipboard delivery so Slack retains lists, bold text, and named links.
+Do not substitute a draft with bare URLs. If a connector cannot preserve or
+edit that format, copy the correctly formatted message to the clipboard and
+state that it is ready to paste. Use both channels unless the user changes the destinations. Do not ask
+for these known channel names. Report whether the message
+was sent, saved as a draft, or copied to the clipboard.
