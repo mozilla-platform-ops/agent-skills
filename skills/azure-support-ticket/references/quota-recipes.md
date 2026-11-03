@@ -164,3 +164,70 @@ az support in-subscription communication create \
   --communication-subject "Additional context" \
   --communication-body "Plain ASCII body..."
 ```
+
+## CLI examples
+
+File a Sev B LowPriorityCores bump in southcentralus:
+
+```bash
+uv run ~/.claude/skills/azure-support-ticket/scripts/file_ticket.py quota \
+  --region southcentralus \
+  --quota-type LowPriorityCores \
+  --new-limit 4000 \
+  --severity moderate \
+  --reason "eastus2 has 20%+ Spot eviction on Standard_D32ads_v5 ..."
+```
+
+Use `--dry-run` to inspect the exact `az` command before filing.
+
+Bump an existing ticket to Sev A (accepts the resource name or the
+display supportTicketId):
+
+```bash
+uv run ~/.claude/skills/azure-support-ticket/scripts/file_ticket.py bump \
+  --ticket-name 2605180040009652 \
+  --severity critical
+```
+
+Per-SKU-family Spot quota (requires `--vm-family`):
+
+```bash
+uv run ~/.claude/skills/azure-support-ticket/scripts/file_ticket.py quota \
+  --region westus2 --quota-type VMFamilyLowPriority \
+  --vm-family standardDADSv5Family --new-limit 200 \
+  --severity moderate --reason "..."
+```
+
+## Severity behavior in the script
+
+`minimal` (Sev C) works on every plan. `moderate` (Sev B) needs Standard
+support or higher. `critical` (Sev A) needs ProDirect or higher. The
+script does not validate the plan before submitting; if the plan
+disallows the severity, the API returns a clear error.
+
+## Troubleshooting
+
+`JsonDeserializationError: Description contains invalid characters` -
+the API rejects high-codepoint characters silently. The script
+normalizes em-dashes, en-dashes, curly quotes, ellipsis, and
+non-breaking spaces to ASCII, and drops anything else with a notice.
+If you see this, your `--reason` body contains a codepoint the
+sanitizer missed; re-encode and retry.
+
+`ResourceNotFound` on `bump` - the previous ticket name doesn't exist
+under the given subscription. Likely you passed the numeric display
+`supportTicketId` from the create response. The script's `bump`
+subcommand resolves the numeric form via `list` automatically, but if
+the ticket was filed under a different subscription you must pass
+`--subscription` explicitly.
+
+`The selected subscription has an Azure support plan that doesn't
+allow this severity` - downgrade with `--severity minimal`, or upgrade
+the plan. See the severity sections in this file.
+
+`InvalidParameterValue` on `quotaChangeRequests` - the payload format
+is per-quota-type. Re-check the recipe in
+this file; the
+common mistake is omitting `VMFamily` (use the literal `lowPriority`
+or `cores` for the regional totals, real family names like
+`standardDADSv5Family` for per-family).
