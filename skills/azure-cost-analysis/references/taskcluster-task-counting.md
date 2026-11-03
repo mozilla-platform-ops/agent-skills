@@ -112,7 +112,7 @@ For analyzing task volumes across a month or comparing months, the TC API approa
 ### Why this table is useful for cost analysis
 - Pre-aggregated, full task history
 - Includes `provisionerId` + `workerType` (combine for full pool ID matching Azure tags)
-- Includes `project` (branch), `kind`, `platform`, `workerGroup` (region), `execution` (minutes)
+- Includes `project` (branch), `kind`, `platform`, `workerGroup` (region), `execution` (seconds, wall-clock task runtime)
 - One row per task run
 
 ### Azure-only filter (essential)
@@ -140,7 +140,7 @@ SELECT
     platform,
     workerGroup,
     COUNT(*) AS task_count,
-    AVG(execution) AS avg_exec_minutes
+    AVG(execution) AS avg_exec_seconds
 FROM taskclusteretl.derived_task_summary
 WHERE created >= '2026-04-01'
   AND created < '2026-05-01'
@@ -163,5 +163,9 @@ pool_id = f"{row['provisionerId']}/{row['workerType']}"
 ### Caveats
 
 - `created` is the task creation timestamp; use it for "tasks created on this date"
-- `execution` is in minutes per task; `AVG(execution)` can be skewed by deadline-exceeded tasks (~24h/1440min outliers). Use median or filter `execution < 1440` if outliers distort the analysis.
+- `execution` is in **seconds** of wall-clock task runtime (verified May 2026:
+  gecko-t win11 p50 ≈ 1409 s ≈ 23 min/task). To get task-hours, divide by 3600.
+  `AVG(execution)` can be skewed by deadline-exceeded tasks (~24 h / 86400 s
+  outliers); use median or filter `execution < 86400` if outliers distort the
+  analysis.
 - A single task can have multiple `runId` values (retries). The query above counts all rows; if you only want unique tasks, filter `runId = 0`.
