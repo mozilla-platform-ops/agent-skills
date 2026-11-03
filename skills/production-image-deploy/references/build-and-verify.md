@@ -32,6 +32,16 @@ and configs rebuilt.
 | 2 — fxci-config PR | Comment `/taskcluster integration` on the bump PR; runs every `integration`-tagged task against the pool+image binding in the PR's diff. Reports via `checks-v1`. | Carries the load for whatever surface 1 skips. Wired up in phase 3. |
 | 3 — mach try | Fallback via the `os-integrations` skill when 1 and 2 don't cover what you need (perf/talos/browsertime, broader candidate iteration, reproducing a specific failure). | On demand. Watch in Treeherder; new Tier-1 reds → fix in ronin_puppet and rebuild. |
 
+### Failed checks
+
+A red check blocks the rollout unless it is a confirmed, pre-existing Gecko
+intermittent: the same test, platform, and failure mode on the current
+production image, classified intermittent in Treeherder with a Bugzilla bug,
+and no worse on the candidate. Never accept image setup, provisioning,
+worker-start, disk, or package-install failures. Record the candidate task,
+production control, and bug in the PR description. Do not rerun only to turn
+an accepted intermittent green.
+
 ## Phase 1 — Trigger the build
 
 Pick the workflow by cloud + image kind. Files live in
@@ -74,7 +84,8 @@ Pick the workflow by cloud + image kind. Files live in
 The expected order for a ronin_puppet bump is **alpha then production**, gated
 on the alpha builds' surface-1 os-integration passing. Dispatch
 `FXCI - Azure Alpha Parallel Images`, confirm its `OS Integration Tests`
-jobs are green, then dispatch the prod parallel workflow.
+jobs are green or only have accepted failures (see Failed checks), then
+dispatch the prod parallel workflow.
 
 Caveat: alpha configs don't auto-track master — several pin `sourceBranch` to
 a relops feature branch with `deploymentId: NA`. To validate a *master*

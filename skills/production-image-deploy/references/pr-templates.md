@@ -126,7 +126,8 @@ source of mistakes.
   gh pr comment <PR_NUMBER> --repo mozilla-releng/fxci-config --body '/taskcluster integration'
   ```
   Author must be a collaborator; only `/taskcluster integration` fires for
-  image-bump PRs. Treat new reds as a stop sign; intermittents are noted.
+  image-bump PRs. Treat new reds as a stop sign unless they meet "Failed checks" in
+  `build-and-verify.md`.
 - **Merge:** request the reviewers from recent bump PRs (#955/#968/#982);
-  squash auto-merge is the default once green — but don't enable it before the
+  squash auto-merge is the default once green or all reds are accepted — but don't enable it before the
   integration checks start reporting.

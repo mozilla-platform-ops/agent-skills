@@ -6,7 +6,9 @@ destinations:
 - [#relops](https://mozilla.enterprise.slack.com/archives/CNN462N2F) (`CNN462N2F`)
 - [#firefox-ci-proj](https://mozilla.enterprise.slack.com/archives/C030SPMMYQN) (`C030SPMMYQN`)
 
-Do not ask the user to supply these known destinations. For clipboard
+Do not ask the user to supply these known destinations. After a connector
+send, read the message back and check each link label and target before you
+report success. For clipboard
 delivery, state that the message is ready to paste into both channels.
 
 Use this September 2026 post as the format example:
