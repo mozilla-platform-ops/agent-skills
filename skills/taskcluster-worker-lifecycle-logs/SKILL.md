@@ -12,44 +12,42 @@ description: >
 # Taskcluster Worker-Manager Logs
 
 Use [`tc-logview`](https://github.com/taskcluster/tc-logview) for service logs.
-Do not build raw Cloud Logging queries for this workflow.
+The installed tool is the source of truth for flags, auth, log types, and
+fields. Read its help before you build a query.
 
-## References
+## Scope
 
-- [README](references/README.md): setup, config, routing.
-- [Log schema](references/log-schema.md): fields, output modes, query patterns.
-
-## USE FOR:
-
-Provisioning failures, registration errors, Azure scanner health, worker
-lifecycle gaps, and single-VM traces.
-
-## Out Of Scope
-
-Task status, live task logs, artifacts, retriggers, in-VM worker logs, and
-Azure VM/disk/NIC control-plane lifecycle events are outside this skill.
+| Log | Use |
+|-----|-----|
+| Taskcluster service logs (worker-manager, worker-scanner) | This skill |
+| Worker guest logs (generic-worker, OS) | **papertrail** |
+| Azure control-plane (VM, disk, NIC) | Azure Activity Log |
+| Task logs and artifacts | **taskcluster** |
 
 ## Prerequisites
 
-`tc-logview` on `PATH`, `fx-ci` in `~/.config/tc-logview/config.yaml`, synced
-references with `tc-logview sync -e fx-ci`, and `jq` for aggregation.
-
-## Examples
-
 ```bash
-tc-logview list --service worker-manager
-tc-logview query -e fx-ci --type worker-removed \
-  --where 'workerPoolId=gecko-t/win11-64-25h2' --since 24h --json
+go install github.com/taskcluster/tc-logview@latest
+tc-logview config init
+tc-logview auth
+tc-logview sync -e fx-ci
 ```
 
-## Workflow
+## Usage
 
-List types, choose a typed event, filter pools with `--where`, trace VMs with
-`--service worker-manager --filter '"vm-..."' --raw`, and use `--json` for
-local aggregation.
+```bash
+tc-logview --help
+tc-logview query --help
+tc-logview list --service worker-manager   # types and typed fields
+```
 
-## Gotchas / Troubleshooting
+Pick a type from `list`, filter with `--where`, search payload text with
+`--filter`, and use `--json` for `jq` or `--raw` for fields that are not typed.
 
-- Pass `-e fx-ci`; environment auto-detection can fail.
-- Use unquoted `--where` values, despite the help text.
-- If types are missing, run `tc-logview sync -e fx-ci`.
+## Gotchas
+
+- Pass `-e fx-ci`. Auto-detection can fail.
+- Do not quote `--where` values, even if the help text shows quotes.
+- If `list` shows no types, run `tc-logview sync -e fx-ci`.
+- Cloud Logging read quota is shared. Long windows fail with
+  `RESOURCE_EXHAUSTED`. Query in 1h `--from/--to` windows.
