@@ -2,53 +2,85 @@
 name: relops-log
 description: >
   Use when asked for a RelOps log sweep, daily health check, or what broke in
-  the last 24 hours. Sweeps Taskcluster service logs (tc-logview), worker
-  guest logs (paperctl), and ronin_puppet Kitchen Windows CI failures, then
+  the last 24 hours. Searches Taskcluster service logs (tc-logview), worker
+  guest logs (paperctl), and ronin_puppet Kitchen CI status checks (gh), then
   groups findings by impact severity. DO NOT USE FOR one worker, task, or
   pool; use the specific skill.
 ---
 
 # RelOps Log Sweep
 
-## Prerequisites
+Use `tc-logview`, `paperctl`, and `gh` directly. The installed tools are the
+source of truth for flags and fields. Run `<tool> --help` before you build a query.
+Default window: last 24h. Search every location below unless the user limits scope.
 
-`uv`, plus these CLIs on `PATH` (Windows, Linux, or macOS):
+## Locations
 
-- `tc-logview` authenticated for `fx-ci` (see **taskcluster-worker-lifecycle-logs**).
-- `paperctl` with `SWO_API_TOKEN` set.
-- `gh` with read access to `mozilla-platform-ops/ronin_puppet`.
-
-## Usage
+**Taskcluster services** (`tc-logview`). Environments: `fx-ci` (namespace
+`taskcluster-prod`), `community-tc` (namespace `taskcluster-communitytc`).
 
 ```bash
-uv run ~/.claude/skills/relops-log/scripts/sweep.py
+tc-logview query -e fx-ci --from <start> --to <end> --raw --limit 5000 \
+  --filter 'resource.labels.namespace_name="taskcluster-prod" AND jsonPayload.Severity<=3'
+tc-logview query -e fx-ci --since 24h --type worker-error --json --limit 20000
 ```
 
-It takes approximately 1-3 minutes. Options: `--hours N`, `--skip taskcluster|papertrail|kitchen`,
-`--out FILE` (default `relops-log.json` in the temp dir).
+**Worker guest logs** (`paperctl`). Add `--system <host>` to search one location.
 
-| Section | Source |
-|---------|--------|
-| `taskcluster` | Taskcluster service errors (mozlog severity <= ERROR) |
-| `worker_errors` | worker-manager `worker-error` by pool |
-| `papertrail` | **Sampled** guest ERROR/CRITICAL/ALERT, with host count and host class |
-| `papertrail_emergency` | EMERGENCY lines that contain failure words |
-| `kitchen_windows` | Failed runs, failed jobs, error lines, latest `master` result |
+```bash
+paperctl search "severity:ERROR OR severity:CRITICAL OR severity:ALERT" \
+  --since <start> --until <end> --limit 2000 --output json
+paperctl search 'severity:EMERGENCY AND (error OR fail OR fatal OR panic OR denied OR timeout)' \
+  --since <start> --until <end> --limit 1000 --output json
+```
 
-Each signature has `key`, `count`, `first_seen`, `last_seen`, `sample`, and `top` (pools or host classes).
+**CI status checks** (`gh`) for `mozilla-platform-ops/ronin_puppet`. Use
+`gh workflow list` to find workflows. Default: `Kitchen Windows`.
 
-Read [references/triage.md](references/triage.md) before you assign
-severity or write the report.
+```bash
+gh run list -R mozilla-platform-ops/ronin_puppet --workflow "Kitchen Windows" \
+  --created ">=<start>" --json databaseId,conclusion,event,headBranch,url,displayTitle
+gh run view <run-id> -R mozilla-platform-ops/ronin_puppet --json jobs
+gh run view -R mozilla-platform-ops/ronin_puppet --job <job-id> --log-failed
+```
+
+In failed job logs, the cause is on `>>>>>>` and `##[error]` lines.
+
+## Triage
+
+Group entries by source, service or program, and message. Remove IDs, hosts,
+and numbers before you group. Then assign impact severity, not log level:
+
+| Severity | Criteria |
+|----------|----------|
+| **Critical** | Blocks CI or a whole pool: workers cannot start, Kitchen fails on `master`, auth or cert failure. |
+| **High** | One pool or hardware class degraded, crash or reboot loops, Kitchen fails for a non-transient reason. |
+| **Medium** | Defect with low impact: misconfiguration on some hosts, errors that are not retried, logging defects. |
+| **Noise** | Expected or harmless. One line each. |
+
+For each item, give: title, source, count, scope (hosts or pools), first and
+last seen, one sample line, an evidence link or exact command, and the next
+action. End with a **Gaps** list (failed queries, skipped windows, sampling).
 
 ## Gotchas
 
-- Papertrail is sampled (`--pt-limit` newest events per hour). Compare
-  counts only. Get real counts with `paperctl search`.
+- Query tc-logview and paperctl in 1h `--from/--to` or `--since/--until`
+  windows. One 24h tc-logview query takes minutes and stops at `--limit`.
+- tc-logview `--json` drops the message for `--filter` queries. Use `--raw`
+  and read `jsonPayload.Fields.message`, `msg`, or `error`.
+- GCP `severity>=ERROR` is useless: GKE marks all stderr as Error. Use
+  `jsonPayload.Severity<=3` (mozlog levels).
+- Papertrail error volume is approximately 100k+/hour, so results are samples.
+  Confirm a signature with a targeted `paperctl search "<text>"`.
+- `paperctl --output json` prints `Total events:` before the JSON. Use
+  `-F <file>` to get clean JSON.
 - `generic-worker`, `run-start-worker`, `run-puppet.sh`, and `sudo` log most
-  lines as EMERGENCY. That is why EMERGENCY is filtered by text.
-- GCP `severity>=ERROR` is useless in tc-logview: GKE marks all stderr as Error.
-- Cloud Logging quota is shared. The script queries 1h windows and retries on
-  `RESOURCE_EXHAUSTED`. Report any `window_errors` as gaps.
+  lines as EMERGENCY. Filter EMERGENCY by text.
+- Kitchen: a `pull_request` failure can be the PR's fault. A failure on
+  `master` is a fleet problem. An Azure or WinRM error that is not in the
+  workflow transient-error regex is not retried; that is a workflow bug.
+- `worker-error` `STOCKOUT` is GCP capacity. Use **queue-diagnosis** to check
+  for a backlog before you flag it.
 
 ## Related Skills
 
